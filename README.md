@@ -64,3 +64,8 @@ No server or build step is required for either file.
 ## Repository workflow prepared here
 
 This project bundle is ready to be committed to Git and imported into GitHub for use with Codex-connected workflows. A companion feature branch scaffold can be created for the future AI query layer.
+
+
+## AI branch scaffold
+
+This branch adds an architecture note, an endpoint contract, and a client stub for the future AI query layer. It does not yet call an LLM or fetch community webpages.

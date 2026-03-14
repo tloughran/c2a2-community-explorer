@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Atlas AI Query Contract",
+  "type": "object",
+  "properties": {
+    "request": {
+      "type": "object",
+      "properties": {
+        "prompt": { "type": "string" },
+        "current_filters": {
+          "type": "object",
+          "properties": {
+            "search": { "type": "string" },
+            "types": { "type": "array", "items": { "type": "string" } },
+            "subtypes": { "type": "array", "items": { "type": "string" } },
+            "country": { "type": "string" },
+            "source": { "type": "string" },
+            "manualOnly": { "type": "boolean" },
+            "geoOnly": { "type": "boolean" }
+          },
+          "required": ["search", "types", "subtypes", "country", "source", "manualOnly", "geoOnly"]
+        },
+        "mode": {
+          "type": "string",
+          "enum": ["database_only", "database_plus_web"]
+        }
+      },
+      "required": ["prompt", "current_filters", "mode"]
+    },
+    "response": {
+      "type": "object",
+      "properties": {
+        "answer_markdown": { "type": "string" },
+        "suggested_filters": {
+          "type": "object",
+          "properties": {
+            "search": { "type": "string" },
+            "types": { "type": "array", "items": { "type": "string" } },
+            "subtypes": { "type": "array", "items": { "type": "string" } },
+            "country": { "type": "string" },
+            "source": { "type": "string" }
+          }
+        },
+        "recommended_ids": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "community_id": { "type": "string" },
+              "source_url": { "type": "string" },
+              "excerpt": { "type": "string" },
+              "provenance": { "type": "string" }
+            },
+            "required": ["community_id", "source_url", "excerpt", "provenance"]
+          }
+        }
+      },
+      "required": ["answer_markdown", "recommended_ids", "evidence"]
+    }
+  },
+  "required": ["request", "response"]
+}

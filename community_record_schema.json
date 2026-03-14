@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.org/community-record.schema.json",
+  "title": "Community Atlas Record",
+  "type": "object",
+  "required": [
+    "Community_ID",
+    "Type",
+    "Subtype",
+    "Community_Name",
+    "Country",
+    "Verified_Link",
+    "Email_Contact",
+    "Narrative_Description",
+    "Problem_Statement",
+    "Resource_Statement",
+    "Solution_Statement",
+    "Source_Directory",
+    "Source_Link",
+    "Verification_Method"
+  ],
+  "properties": {
+    "Community_ID": {
+      "type": "string"
+    },
+    "Type": {
+      "type": "string"
+    },
+    "Subtype": {
+      "type": "string"
+    },
+    "Community_Name": {
+      "type": "string"
+    },
+    "Country": {
+      "type": "string"
+    },
+    "Country_Source": {
+      "type": "string"
+    },
+    "Verified_Link": {
+      "type": "string",
+      "format": "uri"
+    },
+    "Verified_Link_Host": {
+      "type": "string"
+    },
+    "Email_Contact": {
+      "type": "string"
+    },
+    "Email_Retrieval_Note": {
+      "type": "string"
+    },
+    "Narrative_Description": {
+      "type": "string"
+    },
+    "Narrative_Word_Count": {
+      "type": [
+        "integer",
+        "number"
+      ]
+    },
+    "Problem_Statement": {
+      "type": "string"
+    },
+    "Resource_Statement": {
+      "type": "string"
+    },
+    "Solution_Statement": {
+      "type": "string"
+    },
+    "PRS_Triplet_Count": {
+      "type": [
+        "integer",
+        "number"
+      ]
+    },
+    "Source_Directory": {
+      "type": "string"
+    },
+    "Source_Link": {
+      "type": "string",
+      "format": "uri"
+    },
+    "Verification_Method": {
+      "type": "string"
+    },
+    "Narrative_Grounding": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}

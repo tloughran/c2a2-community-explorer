@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Community Atlas Explorer</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="page">
+    <header class="hero">
+      <div>
+        <p class="eyebrow">Community Atlas</p>
+        <h1>Interactive explorer for verified communities</h1>
+        <p class="lede">Browse the rebuilt community directory as a faceted web interface. Filter by type, subtype, country, source, or narrative content; inspect each community’s 100-word organizing-principle summary and Problem–Resource–Solution triplet; and use the built-in prompt stub as a future hand-off surface for an agent or LLM-driven growth workflow.</p>
+        <div class="hero-meta">
+          <span class="meta-pill"><strong id="hero-record-count">0</strong> communities</span>
+          <span class="meta-pill"><strong id="hero-type-count">0</strong> types</span>
+          <span class="meta-pill"><strong id="hero-subtype-count">0</strong> subtypes</span>
+          <span class="meta-pill"><strong id="hero-country-count">0</strong> countries</span>
+        </div>
+      </div>
+      <div class="hero-actions">
+        <button class="action-button primary" id="reset-filters">Reset filters</button>
+        <button class="action-button" id="download-csv">Download filtered CSV</button>
+        <button class="action-button" id="download-json">Download filtered JSON</button>
+        <button class="action-button" id="copy-share-link">Copy share link</button>
+      </div>
+    </header>
+
+    <section class="metrics-grid" id="metrics"></section>
+
+    <section class="workspace">
+      <aside class="controls">
+        <section class="control-card">
+          <label class="control-label" for="search-input">Search the atlas</label>
+          <div class="search-stack">
+            <div class="search-row">
+              <input class="search-input" id="search-input" type="text" autocomplete="off" spellcheck="false" placeholder="Search names, narratives, PRS statements, countries, hosts…">
+              <button class="inline-button search-action" id="apply-search" type="button">Search</button>
+              <button class="inline-button subtle-button" id="clear-search" type="button">Clear</button>
+            </div>
+            <div class="search-status subtle" id="search-status">Search spans community names, type/subtype labels, geography, verified hosts, narrative descriptions, and all PRS fields. Use quotes for exact phrases.</div>
+          </div>
+        </section>
+
+        <section class="control-card">
+          <h3>Type filter</h3>
+          <div class="pill-cloud" id="type-pills"></div>
+        </section>
+
+        <section class="control-card">
+          <h3>Subtype filter</h3>
+          <div class="pill-cloud" id="subtype-pills"></div>
+        </section>
+
+        <section class="control-card">
+          <label class="control-label" for="country-select">Country</label>
+          <select id="country-select"></select>
+          <label class="control-label" for="source-select" style="margin-top: 14px;">Source directory</label>
+          <select id="source-select"></select>
+          <label class="control-label" for="sort-select" style="margin-top: 14px;">Sort visible rows</label>
+          <select id="sort-select">
+            <option value="name-asc">Name A–Z / relevance when searching</option>
+            <option value="relevance">Search relevance</option>
+            <option value="name-desc">Name Z–A</option>
+            <option value="type-subtype">Type → subtype → name</option>
+            <option value="country-name">Country → name</option>
+            <option value="source-name">Source → name</option>
+            <option value="host-name">Host → name</option>
+          </select>
+          <div class="toggle-row">
+            <label class="toggle-label"><input type="checkbox" id="manual-only"> Focus only the manually curated slice</label>
+            <label class="toggle-label"><input type="checkbox" id="geo-only"> Focus only Global / Unspecified geographies</label>
+          </div>
+        </section>
+
+        <details class="control-card">
+          <summary><strong>Data notes and caveats</strong></summary>
+          <p style="margin-top: 12px;">This interface is built from the rebuilt workbook rather than directly re-crawling the web. It inherits the dataset’s main caveat: many narrative summaries are subtype-grounded working descriptions anchored to official site identity or structured source metadata, and most email fields still read <em>none located</em>.</p>
+          <p>The point of this first-pass web layer is to make the directory inspectable, filterable, and ready for the next step: an enrichment agent that can verify, expand, and normalize records.</p>
+        </details>
+
+        <section class="control-card">
+          <h3>Agent / LLM prompt stub</h3>
+          <p>This box translates the current filter state into a structured instruction template for a future growth agent.</p>
+          <textarea class="prompt-area" id="agent-prompt" readonly></textarea>
+          <div class="inline-actions" style="margin-top: 12px;">
+            <button class="inline-button" id="copy-prompt">Copy prompt</button>
+          </div>
+        </section>
+      </aside>
+
+      <main class="content">
+        <section class="chart-card">
+          <div class="section-header">
+            <div>
+              <h2>Type × subtype heatmap</h2>
+              <div class="subtle">A compact view of how the visible slice distributes across the taxonomy.</div>
+            </div>
+          </div>
+          <div id="heatmap"></div>
+        </section>
+
+        <section class="chart-grid">
+          <section class="chart-card">
+            <div class="section-header"><h2>Subtype distribution</h2><div class="subtle">Click a bar to filter.</div></div>
+            <div id="subtype-bars"></div>
+          </section>
+          <section class="chart-card">
+            <div class="section-header"><h2>Country distribution</h2><div class="subtle">Top visible geographies.</div></div>
+            <div id="country-bars"></div>
+          </section>
+          <section class="chart-card">
+            <div class="section-header"><h2>Growth opportunities</h2><div class="subtle">Useful next actions for enrichment.</div></div>
+            <div id="growth-insights"></div>
+          </section>
+          <section class="chart-card">
+            <div class="section-header"><h2>Source coverage</h2><div class="subtle">Where the current visible slice came from.</div></div>
+            <div id="source-bars"></div>
+          </section>
+        </section>
+
+        <section class="results-card">
+          <div class="section-header">
+            <div>
+              <h2>Communities</h2>
+              <div class="subtle">Select a row to inspect the narrative, PRS triplet, and provenance details.</div>
+            </div>
+            <div>
+              <label class="control-label" for="page-size" style="margin-bottom: 6px;">Rows per page</label>
+              <select id="page-size">
+                <option value="10">10</option>
+                <option value="25">25</option>
+                <option value="50">50</option>
+                <option value="100">100</option>
+              </select>
+            </div>
+          </div>
+          <div class="results-toolbar">
+            <div id="results-count"></div>
+            <div class="active-filters" id="active-filters"></div>
+          </div>
+          <div class="results-layout">
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Community</th>
+                    <th>Type</th>
+                    <th>Subtype</th>
+                    <th>Country</th>
+                    <th>Source</th>
+                    <th>Verified site</th>
+                    <th>Email</th>
+                  </tr>
+                </thead>
+                <tbody id="results-body"></tbody>
+              </table>
+            </div>
+            <aside class="detail-panel" id="detail-panel"></aside>
+          </div>
+          <div class="pagination" id="pagination"></div>
+        </section>
+      </main>
+    </section>
+
+    <footer id="footer-meta"></footer>
+  </div>
+  <div class="toast" id="toast"></div>
+
+  <script src="data.js"></script>
+  <script src="search-core.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

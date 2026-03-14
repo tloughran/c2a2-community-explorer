@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://example.org/community-record.schema.json",
-  "title": "Community Atlas Record",
+  "title": "C2A2 Community Explorer Record",
   "type": "object",
   "required": [
     "Community_ID",

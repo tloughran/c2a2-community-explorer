@@ -1,4 +1,6 @@
-# Community Atlas Explorer
+# C2A2 Community Explorer
+
+Community Context for AI Alignment
 
 This project turns the rebuilt community directory into a static, interactive web interface.
 
@@ -11,7 +13,7 @@ This project turns the rebuilt community directory into a static, interactive we
 - `search-core.js` - reusable search normalization and ranking helpers shared by the browser app and smoke tests
 - `app.js` - filtering, visualization, pagination, detail panel, and prompt-generation logic
 - `community_record_schema.json` - a JSON Schema starter for future ingestion and validation
-- `community_atlas_explorer.html` - standalone single-file version for quick opening and sharing
+- `c2a2_community_explorer.html` - standalone single-file version for quick opening and sharing
 - `test_search_smoke.js` - Node smoke test for the tokenized search logic
 
 ## What the interface currently does
@@ -56,11 +58,11 @@ node test_search_smoke.js
 
 You can open either:
 
-- `community_atlas_explorer.html` for a single-file version, or
+- `c2a2_community_explorer.html` for a single-file version, or
 - `index.html` for the modular version.
 
 No server or build step is required for either file.
 
 ## Repository workflow prepared here
 
-This project bundle is ready to be committed to Git and imported into GitHub for use with Codex-connected workflows. A companion feature branch scaffold can be created for the future AI query layer.
+This project bundle is ready to be committed to Git and imported into GitHub for use with Codex-connected workflows under the C2A2 Community Explorer name. A companion feature branch scaffold can be created for the future AI query layer.

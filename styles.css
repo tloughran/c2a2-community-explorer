@@ -64,6 +64,13 @@ button {
   font-size: clamp(2rem, 3vw, 3rem);
   line-height: 1.05;
 }
+.hero-subtitle {
+  margin: 0 0 14px;
+  color: var(--accent);
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
 .lede {
   margin: 0;
   color: var(--muted);

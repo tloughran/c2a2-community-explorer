@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Community Atlas Explorer</title>
+  <title>C2A2 Community Explorer</title>
   <style>
 :root {
   --bg: #f6f8fb;
@@ -70,6 +70,13 @@ button {
   margin: 0 0 10px;
   font-size: clamp(2rem, 3vw, 3rem);
   line-height: 1.05;
+}
+.hero-subtitle {
+  margin: 0 0 14px;
+  color: var(--accent);
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
 }
 .lede {
   margin: 0;
@@ -759,8 +766,8 @@ footer {
   <div class="page">
     <header class="hero">
       <div>
-        <p class="eyebrow">Community Atlas</p>
-        <h1>Interactive explorer for verified communities</h1>
+        <h1>C2A2 Community Explorer</h1>
+        <p class="hero-subtitle">Community Context for AI Alignment</p>
         <p class="lede">Browse the rebuilt community directory as a faceted web interface. Filter by type, subtype, country, source, or narrative content; inspect each community’s 100-word organizing-principle summary and Problem–Resource–Solution triplet; and use the built-in prompt stub as a future hand-off surface for an agent or LLM-driven growth workflow.</p>
         <div class="hero-meta">
           <span class="meta-pill"><strong id="hero-record-count">0</strong> communities</span>
@@ -782,7 +789,7 @@ footer {
     <section class="workspace">
       <aside class="controls">
         <section class="control-card">
-          <label class="control-label" for="search-input">Search the atlas</label>
+          <label class="control-label" for="search-input">Search the explorer</label>
           <div class="search-stack">
             <div class="search-row">
               <input class="search-input" id="search-input" type="text" autocomplete="off" spellcheck="false" placeholder="Search names, narratives, PRS statements, countries, hosts…">
@@ -1649,7 +1656,7 @@ window.COMMUNITY_META = {"generated_at": "2026-03-14", "source_file": "community
       state.geoOnly ? 'Global/Unspecified-only mode: on' : 'Global/Unspecified-only mode: off',
     ].join('\n- ');
     return [
-      'Goal: expand the community atlas with additional verified communities aligned to the current slice.',
+      'Goal: expand the C2A2 Community Explorer with additional verified communities aligned to the current slice.',
       '',
       'Current filter state:',
       `- ${filters}`,
@@ -1659,7 +1666,7 @@ window.COMMUNITY_META = {"generated_at": "2026-03-14", "source_file": "community
       '- Capture a 100-word narrative of the community\'s central organizing principle, grounded in its own website language.',
       '- Produce at least one complete-sentence Problem–Resource–Solution triplet.',
       '- Capture any public email contact, or explicitly record "none located".',
-      '- Avoid duplicate communities and duplicate official hosts already present in the atlas.',
+      '- Avoid duplicate communities and duplicate official hosts already present in C2A2.',
       '',
       'Current slice summary:',
       `- Visible communities: ${rows.length} of ${data.length}.`,
@@ -1776,11 +1783,11 @@ window.COMMUNITY_META = {"generated_at": "2026-03-14", "source_file": "community
     document.querySelector('#reset-filters').addEventListener('click', resetState);
     document.querySelector('#download-csv').addEventListener('click', () => {
       const { rows } = getFilteredRows();
-      downloadFile('community_atlas_filtered.csv', toCsv(rows), 'text/csv;charset=utf-8');
+      downloadFile('c2a2_community_explorer_filtered.csv', toCsv(rows), 'text/csv;charset=utf-8');
     });
     document.querySelector('#download-json').addEventListener('click', () => {
       const rows = getFilteredRows().rows.map(({ __index, hasEmail, manualCuration, geoGap, searchBlob, searchIndex, ...row }) => row);
-      downloadFile('community_atlas_filtered.json', JSON.stringify(rows, null, 2), 'application/json;charset=utf-8');
+      downloadFile('c2a2_community_explorer_filtered.json', JSON.stringify(rows, null, 2), 'application/json;charset=utf-8');
     });
     document.querySelector('#copy-share-link').addEventListener('click', () => copyText(window.location.href));
     document.querySelector('#copy-prompt').addEventListener('click', () => copyText(els.agentPrompt.value, els.agentPrompt));

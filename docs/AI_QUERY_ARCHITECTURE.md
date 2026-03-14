@@ -1,6 +1,6 @@
-# AI Atlas Query Architecture
+# AI Query Architecture for C2A2 Community Explorer
 
-This branch is the scaffold for replacing the deterministic text-search box with an AI query layer.
+This branch is the scaffold for replacing the deterministic text-search box with an AI query layer for the C2A2 Community Explorer.
 
 ## Goal
 
@@ -19,7 +19,7 @@ The long-term target is a two-stage system:
 
 1. The browser sends the user prompt and current filter state to a server endpoint.
 2. The server runs an LLM planning step that maps the request into structured constraints.
-3. The server queries the atlas dataset and returns candidate community IDs.
+3. The server queries the C2A2 dataset and returns candidate community IDs.
 4. When the prompt needs fresh evidence, the server fetches the official community webpages for those candidates.
 5. The server asks the model to synthesize a response grounded in the dataset plus fetched webpage snippets.
 6. The browser receives:

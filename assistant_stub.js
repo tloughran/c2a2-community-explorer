@@ -13,5 +13,5 @@
   if (typeof module === 'object' && module.exports) {
     module.exports = AssistantStub;
   }
-  root.CommunityAtlasAssistantStub = AssistantStub;
+  root.C2A2CommunityExplorerAssistantStub = AssistantStub;
 }(typeof globalThis !== 'undefined' ? globalThis : this));

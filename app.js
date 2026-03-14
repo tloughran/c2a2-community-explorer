@@ -621,7 +621,7 @@
       state.geoOnly ? 'Global/Unspecified-only mode: on' : 'Global/Unspecified-only mode: off',
     ].join('\n- ');
     return [
-      'Goal: expand the community atlas with additional verified communities aligned to the current slice.',
+      'Goal: expand the C2A2 Community Explorer with additional verified communities aligned to the current slice.',
       '',
       'Current filter state:',
       `- ${filters}`,
@@ -631,7 +631,7 @@
       '- Capture a 100-word narrative of the community\'s central organizing principle, grounded in its own website language.',
       '- Produce at least one complete-sentence Problem–Resource–Solution triplet.',
       '- Capture any public email contact, or explicitly record "none located".',
-      '- Avoid duplicate communities and duplicate official hosts already present in the atlas.',
+      '- Avoid duplicate communities and duplicate official hosts already present in C2A2.',
       '',
       'Current slice summary:',
       `- Visible communities: ${rows.length} of ${data.length}.`,
@@ -748,11 +748,11 @@
     document.querySelector('#reset-filters').addEventListener('click', resetState);
     document.querySelector('#download-csv').addEventListener('click', () => {
       const { rows } = getFilteredRows();
-      downloadFile('community_atlas_filtered.csv', toCsv(rows), 'text/csv;charset=utf-8');
+      downloadFile('c2a2_community_explorer_filtered.csv', toCsv(rows), 'text/csv;charset=utf-8');
     });
     document.querySelector('#download-json').addEventListener('click', () => {
       const rows = getFilteredRows().rows.map(({ __index, hasEmail, manualCuration, geoGap, searchBlob, searchIndex, ...row }) => row);
-      downloadFile('community_atlas_filtered.json', JSON.stringify(rows, null, 2), 'application/json;charset=utf-8');
+      downloadFile('c2a2_community_explorer_filtered.json', JSON.stringify(rows, null, 2), 'application/json;charset=utf-8');
     });
     document.querySelector('#copy-share-link').addEventListener('click', () => copyText(window.location.href));
     document.querySelector('#copy-prompt').addEventListener('click', () => copyText(els.agentPrompt.value, els.agentPrompt));

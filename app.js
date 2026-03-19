@@ -2,14 +2,17 @@
 
 (function () {
   const SearchCore = window.CommunitySearchCore;
+  const AIQueryCore = window.CommunityAIQueryCore;
   if (!SearchCore) {
     console.error('CommunitySearchCore is not available.');
     return;
   }
   const { buildRowSearchIndex, parseSearchQuery, scoreRowAgainstTerms } = SearchCore;
+  const canUseAiQuery = Boolean(AIQueryCore && AIQueryCore.runDatasetQuery && AIQueryCore.buildRowAiIndex);
 
   const data = (window.COMMUNITY_DATA || []).map((row, index) => {
     const searchIndex = buildRowSearchIndex(row);
+    const aiIndex = canUseAiQuery ? AIQueryCore.buildRowAiIndex(row) : null;
     return {
       ...row,
       __index: index,
@@ -19,11 +22,13 @@
       manualCuration: row.Source_Directory === 'Manual curation from official homepages',
       geoGap: row.Country === 'Global' || row.Country === 'Unspecified',
       searchIndex,
+      aiIndex,
       searchBlob: searchIndex.fullText,
     };
   });
 
   const meta = window.COMMUNITY_META || {};
+  const dataById = new Map(data.map((row) => [row.Community_ID, row]));
   const collator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true });
   const numberFmt = new Intl.NumberFormat();
 
@@ -48,6 +53,10 @@
 
   const els = {};
   const state = {
+    aiQuery: '',
+    aiResponse: null,
+    aiStatus: canUseAiQuery ? 'idle' : 'unavailable',
+    aiError: canUseAiQuery ? '' : 'AI discovery is unavailable, so the explorer will stay in keyword-and-filter mode.',
     search: '',
     types: new Set(),
     subtypes: new Set(),
@@ -165,6 +174,7 @@
 
   const hydrateStateFromUrl = () => {
     const params = getQueryParams();
+    state.aiQuery = params.get('ai') || '';
     state.search = params.get('q') || '';
     state.types = new Set((params.get('types') || '').split('|').filter(Boolean));
     state.subtypes = new Set((params.get('subtypes') || '').split('|').filter(Boolean));
@@ -193,6 +203,7 @@
         }
       };
       setParam('q', state.search.trim() || '');
+      setParam('ai', state.aiQuery.trim() || '');
       setParam('types', state.types.size ? Array.from(state.types).join('|') : '');
       setParam('subtypes', state.subtypes.size ? Array.from(state.subtypes).join('|') : '');
       setParam('country', state.country || '');
@@ -210,6 +221,10 @@
   };
 
   const resetState = () => {
+    state.aiQuery = '';
+    state.aiResponse = null;
+    state.aiStatus = canUseAiQuery ? 'idle' : 'unavailable';
+    state.aiError = canUseAiQuery ? '' : 'AI discovery is unavailable, so the explorer will stay in keyword-and-filter mode.';
     state.search = '';
     state.types = new Set();
     state.subtypes = new Set();
@@ -226,6 +241,7 @@
   };
 
   const syncControls = () => {
+    if (els.aiQuery) els.aiQuery.value = state.aiQuery;
     els.search.value = state.search;
     els.country.value = state.country;
     els.source.value = state.source;
@@ -235,10 +251,73 @@
     els.geoOnly.checked = state.geoOnly;
   };
 
+  const runAiQuery = (value = '') => {
+    const nextQuery = String(value ?? '').trim();
+    state.aiQuery = nextQuery;
+    state.page = 1;
+    if (!nextQuery) {
+      state.aiResponse = null;
+      state.aiStatus = canUseAiQuery ? 'idle' : 'unavailable';
+      state.aiError = canUseAiQuery ? '' : 'AI discovery is unavailable, so the explorer will stay in keyword-and-filter mode.';
+      syncControls();
+      update();
+      return;
+    }
+    if (!canUseAiQuery) {
+      state.aiResponse = null;
+      state.aiStatus = 'unavailable';
+      state.aiError = 'AI discovery is unavailable in this build, so keyword search remains the fallback.';
+      syncControls();
+      update();
+      return;
+    }
+    try {
+      state.aiResponse = AIQueryCore.runDatasetQuery(data, nextQuery, { limit: 250 });
+      state.aiStatus = 'ok';
+      state.aiError = '';
+      if (state.sort === 'name-asc') state.sort = 'relevance';
+    } catch (error) {
+      state.aiResponse = null;
+      state.aiStatus = 'unavailable';
+      state.aiError = error && error.message
+        ? error.message
+        : 'AI discovery hit an unexpected error, so the explorer stayed available in fallback mode.';
+    }
+    syncControls();
+    update();
+  };
+
+  const getAiMatchMap = () => {
+    if (!state.aiQuery.trim() || !state.aiResponse || !Array.isArray(state.aiResponse.matches)) return null;
+    return new Map(state.aiResponse.matches.map((match) => [match.communityId, match]));
+  };
+
+  const buildAiAnswerStatus = () => {
+    if (state.aiStatus === 'unavailable') {
+      return {
+        label: 'Fallback mode',
+        className: 'unavailable',
+      };
+    }
+    if (!state.aiQuery.trim()) {
+      return {
+        label: 'Ready for a dataset-grounded AI query',
+        className: 'idle',
+      };
+    }
+    return {
+      label: 'Dataset-grounded ranking active',
+      className: '',
+    };
+  };
+
   const sortRows = (rows, searchTerms = []) => {
     const sorted = [...rows];
     const compareText = (a, b) => collator.compare(a || '', b || '');
-    const relevanceCompare = (a, b) => (b.__searchScore || 0) - (a.__searchScore || 0) || compareText(a.Community_Name, b.Community_Name);
+    const relevanceCompare = (a, b) =>
+      (b.__aiScore || 0) - (a.__aiScore || 0) ||
+      (b.__searchScore || 0) - (a.__searchScore || 0) ||
+      compareText(a.Community_Name, b.Community_Name);
     sorted.sort((a, b) => {
       switch (state.sort) {
         case 'relevance':
@@ -254,7 +333,7 @@
         case 'host-name':
           return compareText(a.Verified_Link_Host, b.Verified_Link_Host) || compareText(a.Community_Name, b.Community_Name);
         default:
-          return searchTerms.length ? relevanceCompare(a, b) : compareText(a.Community_Name, b.Community_Name);
+          return (state.aiQuery.trim() || searchTerms.length) ? relevanceCompare(a, b) : compareText(a.Community_Name, b.Community_Name);
       }
     });
     return sorted;
@@ -262,7 +341,21 @@
 
   const getFilteredRows = () => {
     const searchTerms = parseSearchQuery(state.search);
-    let rows = data;
+    const aiMatches = getAiMatchMap();
+    let rows = aiMatches
+      ? Array.from(aiMatches.values())
+        .map((match) => {
+          const row = dataById.get(match.communityId);
+          if (!row) return null;
+          return {
+            ...row,
+            __aiScore: match.score,
+            __aiReason: match.reason,
+            __aiEvidence: match.evidence || [],
+          };
+        })
+        .filter(Boolean)
+      : data;
     if (searchTerms.length) {
       rows = rows
         .map((row) => {
@@ -361,12 +454,12 @@
   const renderSearchStatus = (rows, searchTerms) => {
     if (!els.searchStatus) return;
     if (!searchTerms.length) {
-      els.searchStatus.innerHTML = 'Search spans community names, type/subtype labels, geography, verified hosts, narrative descriptions, and all PRS fields. Use quotes for exact phrases.';
+      els.searchStatus.innerHTML = 'Keyword fallback spans community names, type/subtype labels, geography, verified hosts, narrative descriptions, and all PRS fields. Use quotes for exact phrases.';
       return;
     }
     const label = formatSearchTermsLabel(searchTerms);
     const plural = rows.length === 1 ? 'match' : 'matches';
-    els.searchStatus.innerHTML = `<strong>${numberFmt.format(rows.length)}</strong> ${plural} for <span>${escapeHtml(label)}</span>. Terms can appear in any order across the indexed fields.`;
+    els.searchStatus.innerHTML = `<strong>${numberFmt.format(rows.length)}</strong> keyword ${plural} for <span>${escapeHtml(label)}</span>. Terms can appear in any order across the indexed fields.`;
   };
 
   const renderHeatmap = (rows) => {
@@ -478,6 +571,7 @@
 
   const renderActiveFilters = () => {
     const chips = [];
+    if (state.aiQuery.trim()) chips.push({ label: `AI query: ${state.aiQuery.trim()}`, clear: () => { state.aiQuery = ''; state.aiResponse = null; state.aiStatus = canUseAiQuery ? 'idle' : 'unavailable'; state.aiError = canUseAiQuery ? '' : 'AI discovery is unavailable, so the explorer will stay in keyword-and-filter mode.'; if (els.aiQuery) els.aiQuery.value = ''; } });
     if (state.search.trim()) chips.push({ label: `Search: ${state.search.trim()}`, clear: () => { state.search = ''; els.search.value = ''; } });
     Array.from(state.types).forEach((type) => chips.push({ label: `Type: ${type}`, clear: () => state.types.delete(type) }));
     Array.from(state.subtypes).forEach((subtype) => chips.push({ label: `Subtype: ${subtype}`, clear: () => state.subtypes.delete(subtype) }));
@@ -495,21 +589,130 @@
     els.activeFilters._clearHandlers = chips.map((chip) => chip.clear);
   };
 
+  const renderAiPanels = () => {
+    const status = buildAiAnswerStatus();
+    if (state.aiStatus === 'unavailable') {
+      els.aiQueryStatus.textContent = 'AI discovery is unavailable here, so the explorer remains fully usable with keyword search, filters, charts, and detail views.';
+      els.aiAnswer.innerHTML = `
+        <h3>AI answer</h3>
+        <p>${escapeHtml(state.aiError || 'AI discovery is unavailable in this build.')}</p>
+        <div class="ai-answer-status ${status.className}">${escapeHtml(status.label)}</div>
+      `;
+      els.aiInterpretation.innerHTML = `
+        <h3>Query interpretation</h3>
+        <div class="empty-state">The AI module did not load, so there is no interpreted query to inspect.</div>
+      `;
+      els.aiCitations.innerHTML = `
+        <h3>Evidence and citations</h3>
+        <div class="empty-state">No AI evidence to display. Use keyword search below as the fallback path.</div>
+      `;
+      return;
+    }
+
+    if (!state.aiQuery.trim() || !state.aiResponse) {
+      els.aiQueryStatus.textContent = 'This first release interprets your request against the current dataset only. Existing filters, charts, and keyword fallback remain available below.';
+      els.aiAnswer.innerHTML = `
+        <h3>AI answer</h3>
+        <p class="subtle">No AI query yet. Results, charts, and the detail panel will update when you run one.</p>
+        <div class="ai-answer-status ${status.className}">${escapeHtml(status.label)}</div>
+      `;
+      els.aiInterpretation.innerHTML = `
+        <h3>Query interpretation</h3>
+        <div class="empty-state">Run a natural-language query to inspect the interpreted concepts, field focus, and grounding mode.</div>
+      `;
+      els.aiCitations.innerHTML = `
+        <h3>Evidence and citations</h3>
+        <div class="empty-state">Citations appear here once the explorer ranks communities for a query.</div>
+      `;
+      return;
+    }
+
+    const response = state.aiResponse;
+    const interpretation = response.interpretation || {};
+    const citations = response.answer && Array.isArray(response.answer.citations) ? response.answer.citations : [];
+    els.aiQueryStatus.textContent = `Dataset-grounded mode is active for "${state.aiQuery}". The result table, charts, and detail panel below are now ranked from this query, and keyword search can narrow the slice further.`;
+    els.aiAnswer.innerHTML = `
+      <h3>AI answer</h3>
+      <p>${escapeHtml((response.answer && response.answer.summary) || 'No AI answer available.')}</p>
+      <div class="ai-answer-status ${status.className}">${escapeHtml(status.label)}</div>
+    `;
+    els.aiInterpretation.innerHTML = `
+      <h3>Query interpretation</h3>
+      <div class="ai-interpretation-grid">
+        <article class="ai-kv">
+          <div class="ai-kv-label">Prompt focus</div>
+          <div class="ai-chip-list">
+            ${(interpretation.keywordLabels || []).length
+              ? interpretation.keywordLabels.map((label) => `<span class="ai-chip">${escapeHtml(label)}</span>`).join('')
+              : '<span class="subtle">No primary concepts extracted.</span>'}
+          </div>
+        </article>
+        <article class="ai-kv">
+          <div class="ai-kv-label">Phrase cues</div>
+          <div class="ai-chip-list">
+            ${(interpretation.phraseLabels || []).length
+              ? interpretation.phraseLabels.map((label) => `<span class="ai-chip subtle">${escapeHtml(label)}</span>`).join('')
+              : '<span class="subtle">No phrase cues extracted.</span>'}
+          </div>
+        </article>
+        <article class="ai-kv">
+          <div class="ai-kv-label">Field focus</div>
+          <div class="ai-chip-list">
+            ${(interpretation.focusFields || []).length
+              ? interpretation.focusFields.map((label) => `<span class="ai-chip">${escapeHtml(label)}</span>`).join('')
+              : '<span class="subtle">Using balanced field weights across the dataset.</span>'}
+          </div>
+        </article>
+        <article class="ai-kv">
+          <div class="ai-kv-label">Grounding mode</div>
+          <div class="ai-chip-list">
+            <span class="ai-chip subtle">Current source: dataset rows</span>
+            <span class="ai-chip subtle">Future hook: webpage grounding documents</span>
+          </div>
+        </article>
+      </div>
+    `;
+    els.aiCitations.innerHTML = `
+      <h3>Evidence and citations</h3>
+      ${citations.length ? `<div class="ai-citation-list">${citations.map((citation) => `
+        <article class="ai-citation">
+          <div class="ai-citation-header">
+            <div class="ai-citation-title">${escapeHtml(citation.communityName)}</div>
+            <div class="ai-citation-id">${escapeHtml(citation.communityId)}</div>
+          </div>
+          <div class="ai-evidence-list">
+            ${(citation.evidence || []).map((item) => `
+              <div class="ai-evidence-item">
+                <strong>${escapeHtml(item.fieldLabel)}</strong>
+                <div>${escapeHtml(item.snippet)}</div>
+              </div>
+            `).join('')}
+          </div>
+        </article>
+      `).join('')}</div>` : '<div class="empty-state">No evidence snippets were returned for this query.</div>'}
+    `;
+  };
+
   const renderResults = (rows) => {
     const totalPages = Math.max(1, Math.ceil(rows.length / state.pageSize));
     if (state.page > totalPages) state.page = totalPages;
     const start = (state.page - 1) * state.pageSize;
     const pageRows = rows.slice(start, start + state.pageSize);
     const selected = ensureSelection(rows);
-    els.resultsCount.textContent = `${numberFmt.format(rows.length)} communities`;
+    els.resultsCount.textContent = state.aiQuery.trim()
+      ? `${numberFmt.format(rows.length)} communities · AI ranked`
+      : `${numberFmt.format(rows.length)} communities`;
     if (!pageRows.length) {
       els.resultsBody.innerHTML = '<tr><td colspan="7"><div class="empty-state">No communities match the current filter state.</div></td></tr>';
     } else {
       els.resultsBody.innerHTML = pageRows.map((row) => {
         const selectedClass = selected && row.Community_ID === selected.Community_ID ? ' class="selected"' : '';
         const emailText = row.hasEmail ? row.Email_Contact : 'none located';
+        const aiReason = state.aiQuery.trim() && row.__aiReason
+          ? `<div class="match-reason">${escapeHtml(row.__aiReason)}</div>`
+          : '';
         return `<tr${selectedClass}>
-          <td><button class="name-button" data-select-id="${escapeHtml(row.Community_ID)}">${escapeHtml(row.Community_Name)}</button></td>
+          <td><button class="name-button" data-select-id="${escapeHtml(row.Community_ID)}">${escapeHtml(row.Community_Name)}</button>${aiReason}</td>
           <td><span class="table-pill">${escapeHtml(row.Type)}</span></td>
           <td>${escapeHtml(row.Subtype)}</td>
           <td>${escapeHtml(row.Country)}</td>
@@ -550,6 +753,22 @@
       els.detail.innerHTML = '<div class="empty-state">Select a community to inspect its organizing principle, PRS triplet, and provenance details.</div>';
       return;
     }
+    const aiEvidenceHtml = state.aiQuery.trim() && Array.isArray(row.__aiEvidence) && row.__aiEvidence.length
+      ? `
+        <section class="detail-ai-card">
+          <h4>Why this matched the AI query</h4>
+          <p>${escapeHtml(row.__aiReason || 'This community matched the current dataset-grounded AI query.')}</p>
+          <div class="ai-evidence-list">
+            ${row.__aiEvidence.map((item) => `
+              <div class="ai-evidence-item">
+                <strong>${escapeHtml(item.fieldLabel)}</strong>
+                <div>${escapeHtml(item.snippet)}</div>
+              </div>
+            `).join('')}
+          </div>
+        </section>
+      `
+      : '';
     els.detail.innerHTML = `
       <div class="detail-card">
         <p class="eyebrow">Community detail</p>
@@ -565,6 +784,7 @@
           <button type="button" class="link-button" data-open-url="${escapeHtml(row.Source_Link)}">Open source listing</button>
           <button type="button" class="link-button secondary" data-copy-url="${escapeHtml(row.Source_Link)}">Copy source URL</button>
         </div>
+        ${aiEvidenceHtml}
         <section>
           <h4>Central organizing principle</h4>
           <p>${escapeHtml(row.Narrative_Description)}</p>
@@ -599,7 +819,7 @@
             <div class="detail-meta-row"><div class="key">PRS triplets</div><div>${numberFmt.format(row.PRS_Triplet_Count || 0)}</div></div>
             <div class="detail-meta-row"><div class="key">Directory source</div><div>${escapeHtml(row.Source_Directory)}</div></div>
             <div class="detail-meta-row"><div class="key">Verification</div><div>${escapeHtml(row.Verification_Method)}</div></div>
-            <div class="detail-meta-row"><div class="key">Grounding</div><div>${escapeHtml(row.Narrative_Grounding)}</div></div>
+            <div class="detail-meta-row"><div class="key">Characterization status</div><div>${escapeHtml(row.Narrative_Grounding)}</div></div>
           </div>
         </section>
       </div>
@@ -612,6 +832,7 @@
     const geoGapCount = rows.filter((row) => row.geoGap).length;
     const manualCount = rows.filter((row) => row.manualCuration).length;
     const filters = [
+      state.aiQuery.trim() ? `AI discovery query: ${state.aiQuery.trim()}` : 'AI discovery query: none',
       state.search.trim() ? `Search text: ${state.search.trim()}` : 'Search text: none',
       state.types.size ? `Type filters: ${Array.from(state.types).join(', ')}` : 'Type filters: all',
       state.subtypes.size ? `Subtype filters: ${Array.from(state.subtypes).join(', ')}` : 'Subtype filters: all',
@@ -671,6 +892,7 @@
 
   const update = () => {
     const { rows, searchTerms } = getFilteredRows();
+    renderAiPanels();
     renderMetrics(rows);
     renderSearchStatus(rows, searchTerms);
     renderHeatmap(rows);
@@ -685,6 +907,13 @@
   };
 
   const setUpElements = () => {
+    els.aiQuery = document.querySelector('#ai-query-input');
+    els.runAiQuery = document.querySelector('#run-ai-query');
+    els.clearAiQuery = document.querySelector('#clear-ai-query');
+    els.aiQueryStatus = document.querySelector('#ai-query-status');
+    els.aiAnswer = document.querySelector('#ai-answer-panel');
+    els.aiInterpretation = document.querySelector('#ai-interpretation-panel');
+    els.aiCitations = document.querySelector('#ai-citations-panel');
     els.search = document.querySelector('#search-input');
     els.applySearch = document.querySelector('#apply-search');
     els.clearSearch = document.querySelector('#clear-search');
@@ -722,6 +951,20 @@
       els.search.value = '';
       commitSearch('');
     };
+
+    if (els.aiQuery) {
+      els.aiQuery.addEventListener('keydown', (event) => {
+        if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+          event.preventDefault();
+          runAiQuery(els.aiQuery.value);
+        }
+      });
+    }
+    if (els.runAiQuery) els.runAiQuery.addEventListener('click', () => runAiQuery(els.aiQuery.value));
+    if (els.clearAiQuery) els.clearAiQuery.addEventListener('click', () => {
+      runAiQuery('');
+      if (els.aiQuery) els.aiQuery.focus();
+    });
 
     els.search.addEventListener('input', () => commitSearch(els.search.value));
     els.search.addEventListener('change', () => commitSearch(els.search.value));
@@ -763,6 +1006,13 @@
         event.preventDefault();
         event.stopPropagation();
         openExternalUrl(openUrlTrigger.getAttribute('data-open-url'));
+        return;
+      }
+      const aiExample = event.target.closest('[data-ai-example]');
+      if (aiExample) {
+        const example = aiExample.getAttribute('data-ai-example') || '';
+        if (els.aiQuery) els.aiQuery.value = example;
+        runAiQuery(example);
         return;
       }
       const copyUrlTrigger = event.target.closest('[data-copy-url]');
@@ -894,6 +1144,10 @@
     renderSubtypePills();
     syncControls();
     wireEvents();
+    if (state.aiQuery.trim()) {
+      runAiQuery(state.aiQuery);
+      return;
+    }
     update();
   };
 

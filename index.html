@@ -28,19 +28,57 @@
       </div>
     </header>
 
+    <section class="ai-query-card">
+      <div class="section-header">
+        <div>
+          <h2>AI Discovery</h2>
+          <div class="subtle">Natural-language discovery over the current dataset, with transparent evidence from the fields already in C2A2.</div>
+        </div>
+        <div class="hero-meta ai-meta">
+          <span class="meta-pill">Dataset grounded</span>
+          <span class="meta-pill">Static-friendly fallback</span>
+        </div>
+      </div>
+      <div class="ai-query-layout">
+        <section class="ai-query-inputs">
+          <label class="control-label" for="ai-query-input">Ask for communities in plain language</label>
+          <textarea id="ai-query-input" rows="4" placeholder="Example: Find communities focused on youth civic action and technical mentorship."></textarea>
+          <div class="inline-actions">
+            <button class="action-button primary" id="run-ai-query" type="button">Run AI query</button>
+            <button class="action-button" id="clear-ai-query" type="button">Clear AI query</button>
+          </div>
+          <div class="prompt-chip-row">
+            <button type="button" class="prompt-chip" data-ai-example="Find communities focused on youth civic action and technical mentorship.">Youth civic action + technical mentorship</button>
+            <button type="button" class="prompt-chip" data-ai-example="Show communities whose organizing principle emphasizes open standards.">Open standards</button>
+            <button type="button" class="prompt-chip" data-ai-example="Which communities address mistrust through deliberation, education, and peer support?">Mistrust + deliberation + peer support</button>
+          </div>
+          <div class="search-status subtle" id="ai-query-status">This first release interprets your request against the current dataset only. Existing filters, charts, and keyword fallback remain available below.</div>
+        </section>
+
+        <section class="ai-query-output">
+          <div class="ai-answer-card" id="ai-answer-panel">
+            <h3>AI answer</h3>
+            <p class="subtle">No AI query yet. Results, charts, and the detail panel will update when you run one.</p>
+          </div>
+          <div class="ai-interpretation-card" id="ai-interpretation-panel"></div>
+          <div class="ai-citations-card" id="ai-citations-panel"></div>
+        </section>
+      </div>
+    </section>
+
     <section class="metrics-grid" id="metrics"></section>
 
     <section class="workspace">
       <aside class="controls">
         <section class="control-card">
-          <label class="control-label" for="search-input">Search the explorer</label>
+          <label class="control-label" for="search-input">Keyword fallback</label>
           <div class="search-stack">
             <div class="search-row">
-              <input class="search-input" id="search-input" type="text" autocomplete="off" spellcheck="false" placeholder="Search names, narratives, PRS statements, countries, hosts…">
+              <input class="search-input" id="search-input" type="text" autocomplete="off" spellcheck="false" placeholder="Exact text search for names, narratives, PRS statements, countries, hosts...">
               <button class="inline-button search-action" id="apply-search" type="button">Search</button>
               <button class="inline-button subtle-button" id="clear-search" type="button">Clear</button>
             </div>
-            <div class="search-status subtle" id="search-status">Search spans community names, type/subtype labels, geography, verified hosts, narrative descriptions, and all PRS fields. Use quotes for exact phrases.</div>
+            <div class="search-status subtle" id="search-status">Use keyword search as an exact-text fallback or a second-pass filter on top of the AI-ranked slice. Quotes still force exact phrases.</div>
           </div>
         </section>
 
@@ -62,7 +100,7 @@
           <label class="control-label" for="sort-select" style="margin-top: 14px;">Sort visible rows</label>
           <select id="sort-select">
             <option value="name-asc">Name A–Z / relevance when searching</option>
-            <option value="relevance">Search relevance</option>
+            <option value="relevance">AI / search relevance</option>
             <option value="name-desc">Name Z–A</option>
             <option value="type-subtype">Type → subtype → name</option>
             <option value="country-name">Country → name</option>
@@ -171,6 +209,7 @@
 
   <script src="data.js"></script>
   <script src="search-core.js"></script>
+  <script src="ai-query-core.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

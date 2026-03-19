@@ -11,13 +11,17 @@ This project turns the rebuilt community directory into a static, interactive we
 - `data.js` - embedded dataset for immediate use without a server
 - `community_data.json` - machine-readable JSON for future APIs or agents
 - `search-core.js` - reusable search normalization and ranking helpers shared by the browser app and smoke tests
+- `ai-query-core.js` - dataset-grounded AI query interpretation, ranking, explanation, and citation helpers
 - `app.js` - filtering, visualization, pagination, detail panel, and prompt-generation logic
 - `community_record_schema.json` - a JSON Schema starter for future ingestion and validation
 - `c2a2_community_explorer.html` - standalone single-file version for quick opening and sharing
 - `test_search_smoke.js` - Node smoke test for the tokenized search logic
+- `test_ai_query_smoke.js` - Node smoke test for the dataset-grounded AI retrieval path
+- `docs/ai-query-architecture.md` - design note for the staged AI discovery layer and future webpage grounding
 
 ## What the interface currently does
 
+- AI Discovery panel for natural-language requests over the current dataset, with inspectable evidence and citations
 - Faceted filtering by type, subtype, country, source, and text search
 - Interactive type x subtype heatmap
 - Bar visualizations for subtype, country, and source coverage
@@ -25,6 +29,19 @@ This project turns the rebuilt community directory into a static, interactive we
 - Download of the current filtered slice as CSV or JSON
 - Shareable filter state encoded in the URL when the host environment allows it
 - Auto-generated prompt stub for a future enrichment agent or LLM workflow
+
+## AI discovery layer
+
+This branch introduces a first production-credible AI interaction layer without adding a server requirement.
+
+- The new AI panel is client-side and operates over the current dataset only.
+- Natural-language prompts are interpreted into a structured retrieval request.
+- Matching rows are ranked using existing dataset fields such as subtype, organizing principle, PRS triplets, and source metadata.
+- The interface now returns both a ranked slice of communities and a short natural-language explanation with evidence snippets from the matched rows.
+- Existing filters, visualizations, URL state, downloads, and detail rendering remain intact.
+- Keyword search remains available as a fallback or second-pass exact-text filter.
+
+See [`docs/ai-query-architecture.md`](docs/ai-query-architecture.md) for the staged design and future grounding hook.
 
 ## Search fix in this revision
 
@@ -43,6 +60,7 @@ Run this from the project directory:
 
 ```bash
 node test_search_smoke.js
+node test_ai_query_smoke.js
 ```
 
 ## Recommended next steps for the next iteration
@@ -56,10 +74,13 @@ node test_search_smoke.js
 
 ## No-build workflow
 
-You can open either:
+For the full AI-enabled explorer, open:
 
-- `c2a2_community_explorer.html` for a single-file version, or
 - `index.html` for the modular version.
+
+The standalone single-file snapshot remains available for quick sharing, but the new AI discovery layer is implemented in the modular app:
+
+- `c2a2_community_explorer.html`
 
 No server or build step is required for either file.
 

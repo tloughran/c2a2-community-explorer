@@ -170,10 +170,9 @@ const buildFallbackMatch = (communityId, index) => {
   };
 };
 
-const buildRecommendedMatches = (recommendedIds, localResponse) => {
-  const localMatchMap = new Map((localResponse.rankedMatches || []).map((match) => [match.communityId, match]));
+const buildRecommendedMatches = (recommendedIds) => {
   return recommendedIds
-    .map((communityId, index) => localMatchMap.get(communityId) || buildFallbackMatch(communityId, index))
+    .map((communityId, index) => buildFallbackMatch(communityId, index))
     .filter(Boolean);
 };
 
@@ -235,14 +234,9 @@ const buildAgentInput = (requestPayload, useWebSearch) => {
   return input;
 };
 
-const callOpenAI = async (requestPayload, localResponse) => {
+const callOpenAI = async (requestPayload) => {
   if (!OPENAI_API_KEY) {
-    return {
-      ...localResponse,
-      assistantMode: 'local-dataset',
-      transport: 'local-only',
-      warning: 'Full conversational assistant mode requires OPENAI_API_KEY; this turn used the local heuristic fallback.',
-    };
+    throw new Error('OPENAI_API_KEY is not configured for the server assistant.');
   }
 
   const useWebSearch = requestPayload.mode === 'database_plus_web';
@@ -295,44 +289,35 @@ const callOpenAI = async (requestPayload, localResponse) => {
   const recommendedIds = Array.isArray(parsed.recommendedIds)
     ? parsed.recommendedIds.filter((communityId) => communityById.has(communityId))
     : [];
-  const rankedMatches = buildRecommendedMatches(recommendedIds, localResponse);
+  const rankedMatches = buildRecommendedMatches(recommendedIds);
 
   return {
-    ...localResponse,
     assistantMode: useWebSearch ? 'server-llm-agent-plus-web' : 'server-llm-agent',
     transport: 'openai-responses',
     searchScope: useWebSearch ? 'database_plus_web' : 'database_only',
-    answerMarkdown: parsed.answerMarkdown || localResponse.answerMarkdown,
-    followUpSuggestions: Array.isArray(parsed.followUpSuggestions) && parsed.followUpSuggestions.length
-      ? parsed.followUpSuggestions
-      : localResponse.followUpSuggestions,
+    answerMarkdown: parsed.answerMarkdown,
+    followUpSuggestions: Array.isArray(parsed.followUpSuggestions) ? parsed.followUpSuggestions : [],
     recommendedIds,
     rankedMatches,
     externalFindings: Array.isArray(parsed.externalFindings) ? parsed.externalFindings : [],
-    evidence: recommendedIds.length ? buildEvidenceFromIds(recommendedIds) : localResponse.evidence,
+    evidence: buildEvidenceFromIds(recommendedIds),
   };
 };
 
 const handleApiQuery = async (req, res) => {
   try {
     const requestPayload = await parseRequestBody(req);
-    const localResponse = AIQueryCore.answerQueryLocally(communityRows, requestPayload.prompt || '', {
-      currentFilters: requestPayload.current_filters || {},
-      mode: requestPayload.mode || 'database_only',
-      limit: 150,
-    });
-    try {
-      const responsePayload = await callOpenAI(requestPayload, localResponse);
-      sendJson(res, 200, responsePayload);
-    } catch (error) {
-      sendJson(res, 200, {
-        ...localResponse,
-        warning: error.message,
-        transport: 'local-fallback',
+    if (!OPENAI_API_KEY) {
+      sendJson(res, 503, {
+        status: 'error',
+        message: 'OPENAI_API_KEY is not configured for the server assistant.',
       });
+      return;
     }
+    const responsePayload = await callOpenAI(requestPayload);
+    sendJson(res, 200, responsePayload);
   } catch (error) {
-    sendJson(res, 400, {
+    sendJson(res, 502, {
       status: 'error',
       message: error.message,
     });

@@ -13,7 +13,7 @@ This project turns the rebuilt community directory into a static, interactive we
 - `search-core.js` - reusable search normalization and ranking helpers shared by the browser app and smoke tests
 - `ai-query-core.js` - dataset-grounded AI query interpretation, ranking, explanation, and citation helpers
 - `app.js` - filtering, visualization, pagination, detail panel, and prompt-generation logic
-- `server.js` - optional local server that serves the app and upgrades the assistant to an OpenAI-backed endpoint when `OPENAI_API_KEY` is set
+- `server.js` - required local server for the assistant; serves the app and routes `/api/query` to the OpenAI-backed assistant
 - `package.json` - lightweight scripts for local server and smoke tests
 - `community_record_schema.json` - a JSON Schema starter for future ingestion and validation
 - `c2a2_community_explorer.html` - standalone single-file version for quick opening and sharing
@@ -37,20 +37,19 @@ This project turns the rebuilt community directory into a static, interactive we
 
 ## AI discovery layer
 
-This branch now supports two clearly different assistant modes:
+This branch now treats the assistant as server-backed only:
 
-- Static-only mode: open `index.html` directly and the assistant uses a limited local heuristic fallback in the browser.
-- Server-assisted mode: run `node server.js` and the UI can call `/api/query`.
-- Full conversational mode: set `OPENAI_API_KEY` and the server upgrades into a tool-using OpenAI-backed assistant.
-- In full conversational mode, the model does not rely on one canned local answer. It can inspect the dataset through server-side tools for:
+- Run `node server.js` in the environment where the OpenAI-backed assistant is enabled.
+- Open the app through the server, not by opening `index.html` directly.
+- The model does not rely on one canned local answer. It can inspect the dataset through server-side tools for:
   - semantic dataset search
   - counts and grouped breakdowns
   - country/capital/area inspection
   - richer community-record lookup by ID
-- The assistant still searches the existing dataset first.
+- The assistant searches the existing dataset first.
 - It only widens beyond the dataset when local evidence is insufficient and outside search is allowed.
 - Existing filters, visualizations, URL state, downloads, and detail rendering remain intact.
-- Keyword search remains available as a fallback or second-pass exact-text filter.
+- Keyword search remains available as a second-pass exact-text filter on top of the LLM-driven slice.
 
 See [`docs/ai-query-architecture.md`](docs/ai-query-architecture.md) for the staged design and future grounding hook, and [`server/query_contract.json`](server/query_contract.json) for the request/response shape.
 
@@ -77,19 +76,13 @@ node test_assistant_query_smoke.js
 
 ## Run locally
 
-Static fallback:
-
-```bash
-open index.html
-```
-
-Optional local server with assistant endpoint:
+Required local server with assistant endpoint:
 
 ```bash
 node server.js
 ```
 
-Optional OpenAI-backed mode:
+The assistant is expected to run in the LLM-enabled environment:
 
 ```bash
 OPENAI_API_KEY=... node server.js
@@ -106,15 +99,9 @@ OPENAI_API_KEY=... node server.js
 
 ## No-build workflow
 
-For the full AI-enabled explorer, open:
+For the AI-enabled explorer, run the server and open the served app at `http://127.0.0.1:4173`.
 
-- `index.html` for the modular version.
-
-The standalone single-file snapshot remains available for quick sharing, but the new assistant flow is implemented in the modular app:
-
-- `c2a2_community_explorer.html`
-
-No server or build step is required for either file.
+The standalone single-file snapshot remains available for quick sharing, but it is no longer the assistant path.
 
 ## Repository workflow prepared here
 

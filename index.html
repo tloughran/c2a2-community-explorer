@@ -36,7 +36,7 @@
         </div>
         <div class="hero-meta ai-meta">
           <span class="meta-pill">Dataset grounded</span>
-          <span class="meta-pill" id="assistant-transport-pill">Local heuristic fallback</span>
+          <span class="meta-pill" id="assistant-transport-pill">Server required</span>
         </div>
       </div>
       <div class="ai-query-layout">
@@ -45,14 +45,14 @@
             <div class="conversation-toolbar">
               <div class="conversation-status">
                 <strong id="assistant-mode-label">Assistant ready</strong>
-                <div class="subtle" id="ai-query-status">The full conversational assistant runs through the local server with `OPENAI_API_KEY`. Static mode remains available as a limited heuristic fallback.</div>
+                <div class="subtle" id="ai-query-status">The assistant runs only through the local server with the LLM-enabled environment.</div>
               </div>
               <button class="action-button" id="clear-ai-conversation" type="button">Clear conversation</button>
             </div>
             <div class="conversation-scroll" id="ai-conversation">
               <article class="conversation-message assistant">
                 <div class="message-meta">Assistant</div>
-                <div class="message-body">Ask a question in plain language. In full server mode, I will reason over the dataset conversationally, use tools to inspect it, and go beyond it only when appropriate. Static mode remains a lighter fallback.</div>
+                <div class="message-body">Ask a question in plain language. This explorer now expects the server-backed LLM assistant to reason over the dataset and widen beyond it only when appropriate.</div>
               </article>
             </div>
           </div>
@@ -64,7 +64,7 @@
           <div class="toggle-row">
             <label class="toggle-label"><input type="checkbox" id="allow-external-search"> Allow the assistant to extend beyond the dataset when needed or when I ask</label>
           </div>
-          <div class="subtle" id="external-search-note">Full outside-the-dataset search requires the local server plus `OPENAI_API_KEY`.</div>
+          <div class="subtle" id="external-search-note">Full outside-the-dataset search requires the local server plus the LLM-enabled environment.</div>
           <div class="inline-actions">
             <button class="action-button primary" id="run-ai-query" type="button">Send</button>
             <button class="action-button" id="clear-ai-query" type="button">Clear draft</button>
@@ -75,7 +75,7 @@
             <button type="button" class="prompt-chip" data-ai-example="Show communities whose organizing principle emphasizes open standards.">Open standards</button>
             <button type="button" class="prompt-chip" data-ai-example="If nothing local fits, search beyond the dataset for communities that address mistrust through deliberation, education, and peer support.">Extend beyond dataset</button>
           </div>
-          <div class="search-status subtle">The explorer list, charts, and detail panel follow the latest assistant turn. Keyword search below still works as an exact-text filter on top.</div>
+          <div class="search-status subtle">The explorer list, charts, and detail panel follow the latest assistant turn. Exact-text search below still works as a second-pass filter on top.</div>
         </section>
       </div>
     </section>
@@ -85,14 +85,14 @@
     <section class="workspace">
       <aside class="controls">
         <section class="control-card">
-          <label class="control-label" for="search-input">Keyword fallback</label>
+          <label class="control-label" for="search-input">Exact text filter</label>
           <div class="search-stack">
             <div class="search-row">
               <input class="search-input" id="search-input" type="text" autocomplete="off" spellcheck="false" placeholder="Exact text search for names, narratives, PRS statements, countries, hosts...">
               <button class="inline-button search-action" id="apply-search" type="button">Search</button>
               <button class="inline-button subtle-button" id="clear-search" type="button">Clear</button>
             </div>
-            <div class="search-status subtle" id="search-status">Use keyword search as an exact-text fallback or a second-pass filter on top of the AI-ranked slice. Quotes still force exact phrases.</div>
+            <div class="search-status subtle" id="search-status">Use exact-text search as a second-pass filter on top of the AI-ranked slice. Quotes still force exact phrases.</div>
           </div>
         </section>
 

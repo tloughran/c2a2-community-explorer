@@ -37,6 +37,8 @@
   const collator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true });
   const numberFmt = new Intl.NumberFormat();
   const isStaticMode = window.location.protocol === 'file:';
+  const staticModeMessage = 'The AI assistant runs only through the local server. Open http://127.0.0.1:4173 instead of index.html.';
+  const unavailableServerMessage = 'The LLM assistant is unavailable. Start node server.js with the working OPENAI_API_KEY-backed environment.';
 
   const typeOrder = ['Academic', 'Ideological', 'Corporate'];
   const countBy = (rows, key) => {
@@ -61,12 +63,13 @@
   const state = {
     aiQuery: '',
     aiResponse: null,
-    aiStatus: canUseAiQuery ? 'idle' : 'unavailable',
-    aiError: canUseAiQuery ? '' : 'AI discovery is unavailable, so the explorer will stay in keyword-and-filter mode.',
+    aiStatus: isStaticMode ? 'unavailable' : 'checking',
+    aiError: isStaticMode ? staticModeMessage : '',
     aiConversation: [],
     aiPending: false,
     allowExternalSearch: false,
-    assistantTransport: isStaticMode ? 'local-static' : 'server-or-local',
+    assistantTransport: isStaticMode ? 'server-required' : 'checking-server',
+    assistantReady: false,
     search: '',
     types: new Set(),
     subtypes: new Set(),
@@ -235,8 +238,8 @@
   const resetState = () => {
     state.aiQuery = '';
     state.aiResponse = null;
-    state.aiStatus = canUseAiQuery ? 'idle' : 'unavailable';
-    state.aiError = canUseAiQuery ? '' : 'AI discovery is unavailable, so the explorer will stay in keyword-and-filter mode.';
+    state.aiStatus = isStaticMode ? 'unavailable' : (state.assistantReady ? 'idle' : 'checking');
+    state.aiError = isStaticMode ? staticModeMessage : '';
     state.aiConversation = [];
     state.aiPending = false;
     state.allowExternalSearch = false;
@@ -256,19 +259,24 @@
   };
 
   const syncControls = () => {
+    const assistantDisabled = state.aiStatus === 'unavailable' || state.aiStatus === 'checking' || !state.assistantReady;
     if (els.aiQuery) els.aiQuery.value = state.aiQuery;
     if (els.allowExternalSearch) {
       els.allowExternalSearch.checked = state.allowExternalSearch;
-      els.allowExternalSearch.disabled = isStaticMode;
-      els.allowExternalSearch.title = isStaticMode
-        ? 'Outside-the-dataset search is unavailable in local static mode.'
+      els.allowExternalSearch.disabled = assistantDisabled;
+      els.allowExternalSearch.title = assistantDisabled
+        ? (isStaticMode ? staticModeMessage : unavailableServerMessage)
         : 'Allow the assistant to extend beyond the dataset when needed.';
     }
     if (els.externalSearchNote) {
       els.externalSearchNote.textContent = isStaticMode
-        ? 'Outside-the-dataset search is unavailable in local static mode. Run `node server.js` with `OPENAI_API_KEY` to enable the full assistant.'
-        : 'Full outside-the-dataset search requires the local server plus `OPENAI_API_KEY`.';
+        ? staticModeMessage
+        : state.assistantReady
+          ? 'The LLM assistant is live. The checkbox allows it to widen beyond the dataset when needed.'
+          : unavailableServerMessage;
     }
+    if (els.aiQuery) els.aiQuery.disabled = assistantDisabled;
+    if (els.runAiQuery) els.runAiQuery.disabled = assistantDisabled;
     els.search.value = state.search;
     els.country.value = state.country;
     els.source.value = state.source;
@@ -300,33 +308,59 @@
     state.aiResponse = null;
     state.aiConversation = [];
     state.aiPending = false;
-    state.aiStatus = canUseAiQuery ? 'idle' : 'unavailable';
-    state.aiError = canUseAiQuery ? '' : 'AI discovery is unavailable, so the explorer will stay in keyword-and-filter mode.';
-    state.assistantTransport = isStaticMode ? 'local-static' : 'server-or-local';
+    state.aiStatus = isStaticMode ? 'unavailable' : (state.assistantReady ? 'idle' : 'checking');
+    state.aiError = isStaticMode ? staticModeMessage : '';
+    state.assistantTransport = isStaticMode ? 'server-required' : (state.assistantReady ? 'openai-responses' : 'checking-server');
     syncControls();
     update();
   };
 
-  const buildStaticModeFallbackResponse = (localFallback, requestedExternalSearch) => {
-    const answerLines = [];
-    if (requestedExternalSearch) {
-      answerLines.push('I could not honor the outside-the-dataset part of that request because this page is running in **local static mode**.');
-      answerLines.push('The checkbox only records permission. Actual web-backed or tool-using assistant behavior requires `node server.js` with `OPENAI_API_KEY`.');
-      answerLines.push('What follows is only the limited local dataset fallback, which may miss or misunderstand broader conversational requests.');
+  const refreshAssistantAvailability = async () => {
+    if (isStaticMode) {
+      state.assistantReady = false;
+      state.aiStatus = 'unavailable';
+      state.aiError = staticModeMessage;
+      state.assistantTransport = 'server-required';
+      syncControls();
+      update();
+      return false;
     }
-    if (localFallback.answerMarkdown) answerLines.push(localFallback.answerMarkdown);
-    return {
-      ...localFallback,
-      answerMarkdown: answerLines.join('\n\n'),
-      warning: requestedExternalSearch
-        ? 'Outside-the-dataset search is unavailable in local static mode.'
-        : localFallback.warning,
-      transport: 'local-static',
-      externalSearchUnavailable: requestedExternalSearch,
-    };
+    state.aiStatus = 'checking';
+    state.aiError = '';
+    state.assistantTransport = 'checking-server';
+    syncControls();
+    update();
+    try {
+      const response = await fetch('/health', { cache: 'no-store' });
+      if (!response.ok) {
+        throw new Error(`Health check failed with status ${response.status}.`);
+      }
+      const payload = await response.json();
+      if (!payload.ok || !payload.llmEnabled) {
+        throw new Error(unavailableServerMessage);
+      }
+      state.assistantReady = true;
+      state.aiStatus = 'idle';
+      state.aiError = '';
+      state.assistantTransport = 'openai-responses';
+      syncControls();
+      update();
+      return true;
+    } catch (error) {
+      state.assistantReady = false;
+      state.aiStatus = 'unavailable';
+      state.aiError = error && error.message ? error.message : unavailableServerMessage;
+      state.assistantTransport = 'server-unavailable';
+      syncControls();
+      update();
+      return false;
+    }
   };
 
   const requestAssistantResponse = async (prompt) => {
+    if (isStaticMode) {
+      throw new Error(staticModeMessage);
+    }
     const requestPayload = {
       prompt,
       conversation: state.aiConversation.map((message) => ({
@@ -336,14 +370,6 @@
       current_filters: buildCurrentFiltersPayload(),
       mode: state.allowExternalSearch ? 'database_plus_web' : 'database_only',
     };
-    const localFallback = AIQueryCore.answerQueryLocally(data, prompt, {
-      currentFilters: requestPayload.current_filters,
-      mode: requestPayload.mode,
-      limit: 150,
-    });
-    if (isStaticMode) {
-      return buildStaticModeFallbackResponse(localFallback, requestPayload.mode === 'database_plus_web');
-    }
     try {
       const response = await fetch('/api/query', {
         method: 'POST',
@@ -351,15 +377,12 @@
         body: JSON.stringify(requestPayload),
       });
       if (!response.ok) {
-        throw new Error(`Assistant request failed with status ${response.status}.`);
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload && payload.message ? payload.message : `Assistant request failed with status ${response.status}.`);
       }
       return await response.json();
     } catch (error) {
-      return {
-        ...localFallback,
-        warning: error && error.message ? error.message : 'The server assistant was unavailable, so the local dataset assistant handled this turn.',
-        transport: 'local-fallback',
-      };
+      throw error;
     }
   };
 
@@ -379,10 +402,10 @@
       update();
       return;
     }
-    if (!canUseAiQuery) {
+    if (state.aiStatus === 'unavailable' || !state.assistantReady) {
       state.aiResponse = null;
       state.aiStatus = 'unavailable';
-      state.aiError = 'AI discovery is unavailable in this build, so keyword search remains the fallback.';
+      state.aiError = isStaticMode ? staticModeMessage : unavailableServerMessage;
       syncControls();
       update();
       return;
@@ -402,7 +425,7 @@
       state.aiPending = false;
       state.aiStatus = 'ok';
       state.aiError = response.warning || '';
-      state.assistantTransport = response.transport || 'local-static';
+      state.assistantTransport = response.transport || 'openai-responses';
       if (state.sort === 'name-asc') state.sort = 'relevance';
       addConversationMessage({
         role: 'assistant',
@@ -414,7 +437,7 @@
       state.aiStatus = 'unavailable';
       state.aiError = error && error.message
         ? error.message
-        : 'AI discovery hit an unexpected error, so the explorer stayed available in fallback mode.';
+        : unavailableServerMessage;
       addConversationMessage({
         role: 'assistant',
         text: state.aiError,
@@ -422,7 +445,7 @@
           assistantMode: 'error',
           answerMarkdown: state.aiError,
           evidence: [],
-          followUpSuggestions: ['Try the keyword fallback below while the assistant recovers.'],
+          followUpSuggestions: ['Check that `node server.js` is running with the live OpenAI-enabled environment.'],
           rankedMatches: [],
         },
       });
@@ -443,9 +466,15 @@
   };
 
   const buildAiAnswerStatus = () => {
+    if (state.aiStatus === 'checking') {
+      return {
+        label: 'Checking assistant',
+        className: '',
+      };
+    }
     if (state.aiStatus === 'unavailable') {
       return {
-        label: 'Fallback mode',
+        label: 'Assistant unavailable',
         className: 'unavailable',
       };
     }
@@ -457,12 +486,12 @@
     }
     if (!state.aiQuery.trim()) {
       return {
-        label: 'Ready for a dataset-grounded AI query',
+        label: 'Ready for an LLM assistant query',
         className: 'idle',
       };
     }
     return {
-      label: 'Dataset-grounded ranking active',
+      label: 'LLM assistant response active',
       className: '',
     };
   };
@@ -610,12 +639,12 @@
   const renderSearchStatus = (rows, searchTerms) => {
     if (!els.searchStatus) return;
     if (!searchTerms.length) {
-      els.searchStatus.innerHTML = 'Keyword fallback spans community names, type/subtype labels, geography, verified hosts, narrative descriptions, and all PRS fields. Use quotes for exact phrases.';
+      els.searchStatus.innerHTML = 'Exact-text search spans community names, type/subtype labels, geography, verified hosts, narrative descriptions, and all PRS fields. Use quotes for exact phrases.';
       return;
     }
     const label = formatSearchTermsLabel(searchTerms);
     const plural = rows.length === 1 ? 'match' : 'matches';
-    els.searchStatus.innerHTML = `<strong>${numberFmt.format(rows.length)}</strong> keyword ${plural} for <span>${escapeHtml(label)}</span>. Terms can appear in any order across the indexed fields.`;
+    els.searchStatus.innerHTML = `<strong>${numberFmt.format(rows.length)}</strong> exact-text ${plural} for <span>${escapeHtml(label)}</span>. Terms can appear in any order across the indexed fields.`;
   };
 
   const renderHeatmap = (rows) => {
@@ -727,7 +756,7 @@
 
   const renderActiveFilters = () => {
     const chips = [];
-    if (state.aiQuery.trim()) chips.push({ label: `AI query: ${state.aiQuery.trim()}`, clear: () => { state.aiQuery = ''; state.aiResponse = null; state.aiConversation = []; state.aiPending = false; state.aiStatus = canUseAiQuery ? 'idle' : 'unavailable'; state.aiError = canUseAiQuery ? '' : 'AI discovery is unavailable, so the explorer will stay in keyword-and-filter mode.'; if (els.aiQuery) els.aiQuery.value = ''; } });
+    if (state.aiQuery.trim()) chips.push({ label: `AI query: ${state.aiQuery.trim()}`, clear: () => { state.aiQuery = ''; state.aiResponse = null; state.aiConversation = []; state.aiPending = false; state.aiStatus = isStaticMode ? 'unavailable' : (state.assistantReady ? 'idle' : 'checking'); state.aiError = isStaticMode ? staticModeMessage : ''; if (els.aiQuery) els.aiQuery.value = ''; } });
     if (state.search.trim()) chips.push({ label: `Search: ${state.search.trim()}`, clear: () => { state.search = ''; els.search.value = ''; } });
     Array.from(state.types).forEach((type) => chips.push({ label: `Type: ${type}`, clear: () => state.types.delete(type) }));
     Array.from(state.subtypes).forEach((subtype) => chips.push({ label: `Subtype: ${subtype}`, clear: () => state.subtypes.delete(subtype) }));
@@ -756,25 +785,27 @@
     if (els.assistantTransportPill) {
       els.assistantTransportPill.textContent = state.assistantTransport === 'openai-responses'
         ? 'OpenAI Responses API'
-        : state.assistantTransport === 'server-or-local'
-          ? 'Server-aware fallback'
-          : state.assistantTransport === 'local-static' || state.assistantTransport === 'local-only' || state.assistantTransport === 'local-fallback'
-            ? 'Local heuristic fallback'
-            : state.assistantTransport;
+        : state.assistantTransport === 'checking-server'
+          ? 'Checking server'
+          : state.assistantTransport === 'server-required'
+            ? 'Server required'
+            : state.assistantTransport === 'server-unavailable'
+              ? 'Server unavailable'
+              : state.assistantTransport;
     }
 
-    if (state.aiStatus === 'unavailable') {
-      els.aiQueryStatus.textContent = 'AI discovery is unavailable here, so the explorer remains fully usable with keyword search, filters, charts, and detail views.';
+    if (state.aiStatus === 'checking') {
+      els.aiQueryStatus.textContent = 'Checking whether the server-backed LLM assistant is available...';
+    } else if (state.aiStatus === 'unavailable') {
+      els.aiQueryStatus.textContent = state.aiError || unavailableServerMessage;
     } else if (state.aiPending) {
       els.aiQueryStatus.textContent = 'The assistant is assembling an answer in English and will update the explorer when the turn completes.';
-    } else if (state.aiResponse && state.aiResponse.externalSearchUnavailable) {
-      els.aiQueryStatus.textContent = 'Outside-the-dataset search was requested, but this page is still in local static fallback mode.';
     } else if (state.aiResponse && state.aiResponse.searchScope === 'database_plus_web') {
       els.aiQueryStatus.textContent = 'This turn is allowed to extend beyond the dataset when local fit is weak or when you asked for outside search.';
     } else if (state.assistantTransport === 'openai-responses') {
       els.aiQueryStatus.textContent = 'The server-backed assistant is reasoning over the dataset with tool access and can widen beyond it when appropriate.';
     } else {
-      els.aiQueryStatus.textContent = 'This is the local heuristic fallback. For the full conversational assistant, run the server with OPENAI_API_KEY.';
+      els.aiQueryStatus.textContent = unavailableServerMessage;
     }
 
     const conversation = [...state.aiConversation];
@@ -793,7 +824,7 @@
 
     if (!conversation.length) {
       els.aiConversation.innerHTML = `
-        <div class="message-empty">Ask a question in plain language. In full server mode, the assistant reasons over the dataset with tool access; in static mode, a lighter fallback remains available.</div>
+        <div class="message-empty">Ask a question in plain language. This explorer now expects the server-backed LLM assistant to be available.</div>
       `;
       return;
     }
@@ -1306,7 +1337,7 @@
     document.querySelector('#footer-meta').textContent = `Built from ${meta.source_file || 'community_directory_rebuilt_main.csv'} · generated ${meta.generated_at || ''} · this interface visualizes the rebuilt working dataset without live re-verification.`;
   };
 
-  const init = () => {
+  const init = async () => {
     setUpElements();
     hydrateStateFromUrl();
     renderStaticMeta();
@@ -1315,8 +1346,9 @@
     renderSubtypePills();
     syncControls();
     wireEvents();
+    const assistantReady = await refreshAssistantAvailability();
     if (state.aiQuery.trim()) {
-      runAiQuery(state.aiQuery);
+      if (assistantReady) runAiQuery(state.aiQuery);
       return;
     }
     update();

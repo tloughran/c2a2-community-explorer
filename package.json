@@ -8,6 +8,7 @@
     "test:ai": "node test_ai_query_smoke.js",
     "test:assistant": "node test_assistant_query_smoke.js",
     "test:toolkit": "node test_assistant_toolkit_smoke.js",
-    "test:server-payload": "node test_server_payload_smoke.js"
+    "test:server-payload": "node test_server_payload_smoke.js",
+    "test:dataset-store": "node test_dataset_store_smoke.js"
   }
 }

@@ -13,15 +13,23 @@ The authoritative local input is still the existing dataset. External search is 
    - `search_dataset`
    - `count_dataset`
    - `inspect_geographies`
+   - `list_taxonomy`
    - `get_communities`
 3. `server.js` serves the app and `/api/query`:
    - requires the OpenAI-backed assistant path
    - runs the model in a tool loop over the dataset
+   - allows the model to write a new record through `add_community_record` when the user explicitly asks for it
    - allows outside-the-dataset search only when the turn permits it
-4. `app.js` treats the latest assistant turn as another ranked slice of the same dataset:
+4. `dataset-store.js` is the canonical persistence layer:
+   - writes both `community_data.json` and `data.js`
+   - regenerates dataset metadata
+   - rejects obvious duplicates by name/country or canonical URL
+   - stamps `Entry_Date`, `Entered_By`, and `Entry_Method`
+5. `app.js` treats the latest assistant turn as another ranked slice of the same dataset:
    - the result table updates
    - charts and metrics recompute against the latest recommended slice
    - the detail panel shows why the selected row matched
+   - newly created records are ingested into the browser state immediately
    - keyword search remains available as a fallback or second-pass filter
 
 ## Why this changed
@@ -35,6 +43,7 @@ The deeper fix is to move the primary intelligence into a server-side LLM agent 
 - carry a conversation across turns
 - separate dataset-grounded findings from outside-the-dataset findings
 - choose when broader web search is warranted
+- write a complete new dataset record when the user explicitly authorizes an addition
 
 That means the browser no longer provides its own assistant answer path.
 
@@ -56,11 +65,13 @@ The server LLM now works differently:
 1. Receive the user prompt, current filters, and recent conversation.
 2. Call dataset tools as needed.
 3. Optionally call web search only when allowed and justified.
-4. Return:
+4. Optionally call `add_community_record` when the user explicitly asks to add/save/commit a community and the required grounded fields are available.
+5. Return:
    - a plain-English answer
    - a dataset-backed recommended ID slice
    - follow-up suggestions
    - explicitly separated external findings when applicable
+   - mutation metadata when a new record was created
 
 The current field weighting favors:
 
@@ -85,6 +96,7 @@ The intended next step is to attach webpage-derived grounding passages per commu
 - If an AI query returns no strong matches, the UI explains that outcome and keeps the rest of the explorer usable.
 - The transcript remains visible and scrollable, and the clear action stays in sight.
 - The UI now treats the LLM-backed server as required for assistant behavior.
+- Dataset writes happen only on the server path, never in the browser.
 
 ## Validation
 
@@ -94,6 +106,7 @@ Run:
 node test_ai_query_smoke.js
 node test_assistant_query_smoke.js
 node test_assistant_toolkit_smoke.js
+node test_dataset_store_smoke.js
 ```
 
 This validates both the local retrieval path and the dataset-tool layer that the server LLM uses in full conversational mode.

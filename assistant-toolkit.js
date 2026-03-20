@@ -112,13 +112,22 @@ const buildRowSummary = (row, match) => ({
   type: row.Type,
   subtype: row.Subtype,
   country: row.Country,
+  countrySource: row.Country_Source,
   sourceDirectory: row.Source_Directory,
   sourceUrl: row.Source_Link,
+  verifiedUrl: row.Verified_Link,
   verifiedHost: row.Verified_Link_Host,
+  emailContact: row.Email_Contact,
+  emailRetrievalNote: row.Email_Retrieval_Note,
   organizingPrinciple: row.Narrative_Description,
   problemStatement: row.Problem_Statement,
   resourceStatement: row.Resource_Statement,
   solutionStatement: row.Solution_Statement,
+  verificationMethod: row.Verification_Method,
+  characterizationStatus: row.Narrative_Grounding,
+  entryDate: row.Entry_Date || '',
+  enteredBy: row.Entered_By || '',
+  entryMethod: row.Entry_Method || '',
   reasoning: match && match.reason ? match.reason : '',
   evidence: match && Array.isArray(match.evidence) ? match.evidence : [],
   geography: COUNTRY_METADATA[row.Country] || null,
@@ -245,6 +254,18 @@ const getCommunities = (rows, args = {}) => {
   };
 };
 
+const listTaxonomy = (rows, args = {}) => {
+  const field = ['Type', 'Subtype', 'Country', 'Source_Directory'].includes(args.field) ? args.field : 'Subtype';
+  const limit = Math.max(1, Math.min(250, Number(args.limit || 100)));
+  const values = countEntries(rows, field, limit);
+  return {
+    tool: 'list_taxonomy',
+    field,
+    totalDistinctValues: uniq(rows.map((row) => row[field] || 'Unspecified')).length,
+    values,
+  };
+};
+
 const TOOL_SCHEMAS = [
   {
     type: 'function',
@@ -307,6 +328,20 @@ const TOOL_SCHEMAS = [
       },
       required: ['community_ids']
     }
+  },
+  {
+    type: 'function',
+    name: 'list_taxonomy',
+    description: 'List current distinct Type, Subtype, Country, or Source_Directory values in the dataset so you can reason about existing labels before answering or writing.',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        field: { type: 'string', enum: ['Type', 'Subtype', 'Country', 'Source_Directory'] },
+        limit: { type: 'integer', minimum: 1, maximum: 250 }
+      },
+      required: ['field']
+    }
   }
 ];
 
@@ -320,6 +355,8 @@ const executeToolCall = (rows, filters, toolName, args) => {
       return inspectGeographies(rows, filters, args);
     case 'get_communities':
       return getCommunities(rows, args);
+    case 'list_taxonomy':
+      return listTaxonomy(rows, args);
     default:
       throw new Error(`Unknown tool: ${toolName}`);
   }
@@ -333,4 +370,5 @@ module.exports = {
   countDataset,
   inspectGeographies,
   getCommunities,
+  listTaxonomy,
 };

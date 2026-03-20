@@ -14,19 +14,21 @@ This project turns the rebuilt community directory into a static, interactive we
 - `ai-query-core.js` - dataset-grounded AI query interpretation, ranking, explanation, and citation helpers
 - `app.js` - filtering, visualization, pagination, detail panel, and prompt-generation logic
 - `server.js` - required local server for the assistant; serves the app and routes `/api/query` to the OpenAI-backed assistant
+- `dataset-store.js` - canonical dataset read/write store used by the server assistant for full record creation
 - `package.json` - lightweight scripts for local server and smoke tests
 - `community_record_schema.json` - a JSON Schema starter for future ingestion and validation
 - `c2a2_community_explorer.html` - standalone single-file version for quick opening and sharing
 - `test_search_smoke.js` - Node smoke test for the tokenized search logic
 - `test_ai_query_smoke.js` - Node smoke test for the dataset-grounded AI retrieval path
-- `test_assistant_query_smoke.js` - Node smoke test for local assistant answers such as count and region queries
+- `test_assistant_query_smoke.js` - Node smoke test for the shared dataset reasoning helpers that still back some server-side tool behavior
+- `test_dataset_store_smoke.js` - Node smoke test for canonical dataset writes and duplicate guards
 - `docs/ai-query-architecture.md` - design note for the staged AI discovery layer and future webpage grounding
 
 ## What the interface currently does
 
 - AI assistant panel with a scrollable conversation transcript, pinned clear action, and plain-English answers
-- Dataset-first natural-language requests with local count, summarize, and retrieval behavior
-- Optional server-assisted mode that can upgrade answers to an OpenAI-backed assistant and extend beyond the dataset when allowed
+- Server-backed natural-language assistant that searches the dataset first and can widen beyond it when allowed
+- Server-authorized dataset writes so the assistant can add a fully formed community record when the user explicitly asks it to
 - Faceted filtering by type, subtype, country, source, and text search
 - Interactive type x subtype heatmap
 - Bar visualizations for subtype, country, and source coverage
@@ -45,7 +47,13 @@ This branch now treats the assistant as server-backed only:
   - semantic dataset search
   - counts and grouped breakdowns
   - country/capital/area inspection
+  - taxonomy inspection for existing labels
   - richer community-record lookup by ID
+- When explicitly asked to add a community, the assistant can now write a canonical record into both `community_data.json` and `data.js`.
+- New assistant-written records get the same core fields as existing records plus entry metadata:
+  - `Entry_Date`
+  - `Entered_By`
+  - `Entry_Method`
 - The assistant searches the existing dataset first.
 - It only widens beyond the dataset when local evidence is insufficient and outside search is allowed.
 - Existing filters, visualizations, URL state, downloads, and detail rendering remain intact.
@@ -72,6 +80,8 @@ Run this from the project directory:
 node test_search_smoke.js
 node test_ai_query_smoke.js
 node test_assistant_query_smoke.js
+node test_assistant_toolkit_smoke.js
+node test_dataset_store_smoke.js
 ```
 
 ## Run locally
@@ -91,6 +101,12 @@ Required value:
 
 ```bash
 OPENAI_API_KEY=your_real_key_here
+```
+
+Optional metadata for server-side writes:
+
+```bash
+C2A2_ACTOR=your_name
 ```
 
 You can still launch with an inline env var if you prefer:

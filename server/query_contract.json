@@ -107,6 +107,24 @@
             },
             "required": ["title", "url", "note"]
           }
+        },
+        "mutations": {
+          "type": "object",
+          "properties": {
+            "createdCommunityIds": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "createdCommunities": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              }
+            },
+            "datasetTotalRecords": {
+              "type": "integer"
+            }
+          }
         }
       },
       "required": ["assistantMode", "searchScope", "answerMarkdown", "recommendedIds", "rankedMatches", "evidence", "followUpSuggestions"]

@@ -34,4 +34,11 @@ const capitalsStartingAF = geographies.representedCountries.filter((entry) => {
 assert.ok(capitalsStartingAF.length > 0, 'Expected represented geographies with capitals beginning A-F.');
 assert.ok(capitalsStartingAF.some((entry) => entry.capital === 'Berlin'), 'Expected Berlin to be present for represented countries.');
 
+const taxonomy = AssistantToolkit.listTaxonomy(rows, {
+  field: 'Subtype',
+  limit: 25,
+});
+assert.ok(taxonomy.totalDistinctValues > 0, 'Expected list_taxonomy to report subtype values.');
+assert.ok(taxonomy.values.some((entry) => entry.label === 'Interdisciplinary institution'), 'Expected a known subtype in taxonomy output.');
+
 console.log('Assistant toolkit smoke test passed.');

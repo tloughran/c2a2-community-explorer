@@ -4,6 +4,7 @@ const path = require('path');
 const { URL } = require('url');
 const AIQueryCore = require('./ai-query-core.js');
 const AssistantToolkit = require('./assistant-toolkit.js');
+const DatasetStore = require('./dataset-store.js');
 
 const ROOT_DIR = __dirname;
 const loadDotEnv = (filePath) => {
@@ -31,6 +32,7 @@ const HOST = process.env.HOST || '127.0.0.1';
 const PORT = Number(process.env.PORT || 4173);
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-5.4';
+const DATASET_ACTOR = process.env.C2A2_ACTOR || process.env.USER || 'local-admin';
 const PUBLIC_FILES = new Set([
   '.html', '.css', '.js', '.json', '.md', '.ico', '.txt'
 ]);
@@ -45,13 +47,21 @@ const MIME_TYPES = {
   '.txt': 'text/plain; charset=utf-8',
 };
 
-const communityRows = JSON.parse(fs.readFileSync(path.join(ROOT_DIR, 'community_data.json'), 'utf8'))
-  .map((row) => ({
-    ...row,
-    aiIndex: AIQueryCore.buildRowAiIndex(row),
-  }));
+const decorateRow = (row) => ({
+  ...row,
+  aiIndex: AIQueryCore.buildRowAiIndex(row),
+});
 
-const communityById = new Map(communityRows.map((row) => [row.Community_ID, row]));
+let communityRows = [];
+let communityById = new Map();
+
+const refreshDatasetCache = () => {
+  communityRows = DatasetStore.loadRows().map(decorateRow);
+  communityById = new Map(communityRows.map((row) => [row.Community_ID, row]));
+  return communityRows;
+};
+
+refreshDatasetCache();
 
 const llmResponseSchema = {
   type: 'object',
@@ -81,6 +91,48 @@ const llmResponseSchema = {
     }
   },
   required: ['answerMarkdown', 'recommendedIds', 'followUpSuggestions', 'externalFindings']
+};
+
+const ADD_COMMUNITY_TOOL_SCHEMA = {
+  type: 'function',
+  name: 'add_community_record',
+  description: 'Create and persist a new community record in the canonical dataset when the user explicitly asks you to add/save/commit it and you have enough grounded information to write a full record.',
+  parameters: {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      type: { type: 'string' },
+      subtype: { type: 'string' },
+      community_name: { type: 'string' },
+      country: { type: 'string' },
+      country_source: { type: 'string' },
+      verified_link: { type: 'string' },
+      source_link: { type: 'string' },
+      source_directory: { type: 'string' },
+      email_contact: { type: 'string' },
+      email_retrieval_note: { type: 'string' },
+      narrative_description: { type: 'string' },
+      problem_statement: { type: 'string' },
+      resource_statement: { type: 'string' },
+      solution_statement: { type: 'string' },
+      verification_method: { type: 'string' },
+      narrative_grounding: { type: 'string' },
+      entered_by: { type: 'string' },
+      entry_method: { type: 'string' }
+    },
+    required: [
+      'type',
+      'subtype',
+      'community_name',
+      'country',
+      'verified_link',
+      'source_link',
+      'narrative_description',
+      'problem_statement',
+      'resource_statement',
+      'solution_statement'
+    ]
+  }
 };
 
 const sendJson = (res, statusCode, payload) => {
@@ -197,6 +249,13 @@ const buildRecommendedMatches = (recommendedIds) => {
     .filter(Boolean);
 };
 
+const buildCreatedCommunityPayload = (communityId) => {
+  const row = communityById.get(communityId);
+  if (!row) return null;
+  const { aiIndex, ...record } = row;
+  return record;
+};
+
 const requestResponsesApi = async (payload) => {
   const response = await fetch('https://api.openai.com/v1/responses', {
     method: 'POST',
@@ -230,7 +289,10 @@ const buildAgentInput = (requestPayload, useWebSearch) => {
           'Be genuinely conversational, analytical, and helpful.',
           'Use the dataset tools first for every turn.',
           'Think of the tools as your way to inspect the dataset directly rather than relying on a canned local answer.',
-          'Use `search_dataset` for topical discovery, `count_dataset` for totals and grouped counts, `inspect_geographies` for country/capital/area reasoning, and `get_communities` for richer record detail.',
+          'Use `search_dataset` for topical discovery, `count_dataset` for totals and grouped counts, `inspect_geographies` for country/capital/area reasoning, `list_taxonomy` to inspect existing labels, and `get_communities` for richer record detail.',
+          'If the user explicitly asks you to add, save, or commit a new community and you have enough grounded information, you may call `add_community_record` to write it into the canonical dataset immediately.',
+          'Before writing, verify that the community is not already present, inspect existing subtype labels when relevant, and prefer official-site grounding plus clearly separated outside-the-dataset support when you use web search.',
+          'Do not write stub records. If key fields are missing, ask for them or say what is missing.',
           modeInstruction,
           'Do not invent communities, IDs, countries, or claims about the dataset.',
           'When you rely on outside-the-dataset information, keep it explicitly separated from dataset-grounded findings.',
@@ -262,7 +324,10 @@ const callOpenAI = async (requestPayload) => {
   }
 
   const useWebSearch = requestPayload.mode === 'database_plus_web';
-  const tools = AssistantToolkit.TOOL_SCHEMAS.concat(useWebSearch ? [{ type: 'web_search_preview' }] : []);
+  const tools = AssistantToolkit.TOOL_SCHEMAS
+    .concat([ADD_COMMUNITY_TOOL_SCHEMA])
+    .concat(useWebSearch ? [{ type: 'web_search_preview' }] : []);
+  const createdCommunityIds = [];
   let payload = await requestResponsesApi({
     model: OPENAI_MODEL,
     reasoning: { effort: 'medium' },
@@ -283,7 +348,31 @@ const callOpenAI = async (requestPayload) => {
     if (!functionCalls.length) break;
     const outputs = functionCalls.map((call) => {
       const args = parseJsonArguments(call.arguments);
-      const result = AssistantToolkit.executeToolCall(communityRows, requestPayload.current_filters || {}, call.name, args);
+      let result;
+      try {
+        if (call.name === 'add_community_record') {
+          const writeResult = DatasetStore.addRecord(args, {
+            actor: String(args.entered_by || DATASET_ACTOR).trim() || DATASET_ACTOR,
+          });
+          refreshDatasetCache();
+          createdCommunityIds.push(writeResult.record.Community_ID);
+          result = {
+            tool: 'add_community_record',
+            status: 'created',
+            record: buildCreatedCommunityPayload(writeResult.record.Community_ID),
+            datasetTotalRecords: communityRows.length,
+            datasetMeta: writeResult.meta,
+          };
+        } else {
+          result = AssistantToolkit.executeToolCall(communityRows, requestPayload.current_filters || {}, call.name, args);
+        }
+      } catch (error) {
+        result = {
+          tool: call.name,
+          status: 'error',
+          error: error && error.message ? error.message : 'Tool execution failed.',
+        };
+      }
       return {
         type: 'function_call_output',
         call_id: call.call_id,
@@ -308,10 +397,13 @@ const callOpenAI = async (requestPayload) => {
 
   const rawText = extractResponseText(payload);
   const parsed = JSON.parse(rawText);
-  const recommendedIds = Array.isArray(parsed.recommendedIds)
-    ? parsed.recommendedIds.filter((communityId) => communityById.has(communityId))
-    : [];
+  const requestedIds = Array.isArray(parsed.recommendedIds) ? parsed.recommendedIds : [];
+  const recommendedIds = Array.from(new Set(requestedIds.concat(createdCommunityIds)))
+    .filter((communityId) => communityById.has(communityId));
   const rankedMatches = buildRecommendedMatches(recommendedIds);
+  const createdCommunities = createdCommunityIds
+    .map((communityId) => buildCreatedCommunityPayload(communityId))
+    .filter(Boolean);
 
   return {
     assistantMode: useWebSearch ? 'server-llm-agent-plus-web' : 'server-llm-agent',
@@ -323,6 +415,11 @@ const callOpenAI = async (requestPayload) => {
     rankedMatches,
     externalFindings: Array.isArray(parsed.externalFindings) ? parsed.externalFindings : [],
     evidence: buildEvidenceFromIds(recommendedIds),
+    mutations: {
+      createdCommunityIds,
+      createdCommunities,
+      datasetTotalRecords: communityRows.length,
+    },
   };
 };
 
@@ -365,7 +462,9 @@ const serveFile = (req, res, pathname) => {
     }
     res.writeHead(200, {
       'Content-Type': MIME_TYPES[extension] || 'application/octet-stream',
-      'Cache-Control': extension === '.html' ? 'no-store' : 'public, max-age=300',
+      'Cache-Control': extension === '.html' || safePath === '/data.js' || safePath === '/community_data.json'
+        ? 'no-store'
+        : 'public, max-age=300',
     });
     res.end(buffer);
   });
@@ -403,5 +502,6 @@ module.exports = {
   buildAgentInput,
   normalizeConversation,
   loadDotEnv,
+  refreshDatasetCache,
   server,
 };

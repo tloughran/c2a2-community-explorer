@@ -15,7 +15,7 @@
     AIQueryCore.buildRowAiIndex
   );
 
-  const data = (window.COMMUNITY_DATA || []).map((row, index) => {
+  const enrichRow = (row, index) => {
     const searchIndex = buildRowSearchIndex(row);
     const aiIndex = canUseAiQuery ? AIQueryCore.buildRowAiIndex(row) : null;
     return {
@@ -30,10 +30,12 @@
       aiIndex,
       searchBlob: searchIndex.fullText,
     };
-  });
+  };
+
+  const data = (window.COMMUNITY_DATA || []).map((row, index) => enrichRow(row, index));
 
   const meta = window.COMMUNITY_META || {};
-  const dataById = new Map(data.map((row) => [row.Community_ID, row]));
+  let dataById = new Map(data.map((row) => [row.Community_ID, row]));
   const collator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true });
   const numberFmt = new Intl.NumberFormat();
   const servedAppUrl = 'http://127.0.0.1:4173';
@@ -52,13 +54,39 @@
   };
   const unique = (rows, key) => Array.from(new Set(rows.map((row) => row[key]).filter(Boolean)));
   const sortEntries = (entries) => entries.sort((a, b) => b[1] - a[1] || collator.compare(a[0], b[0]));
-  const subtypeCountsGlobal = countBy(data, 'Subtype');
-  const countryCountsGlobal = countBy(data, 'Country');
-  const sourceCountsGlobal = countBy(data, 'Source_Directory');
-  const orderedSubtypes = sortEntries(Array.from(subtypeCountsGlobal.entries())).map(([name]) => name);
-  const orderedCountries = Array.from(countryCountsGlobal.keys()).sort(collator.compare);
-  const orderedSources = sortEntries(Array.from(sourceCountsGlobal.entries())).map(([name]) => name);
-  const sparseSubtypesGlobal = orderedSubtypes.filter((subtype) => (subtypeCountsGlobal.get(subtype) || 0) <= 5);
+  let subtypeCountsGlobal = new Map();
+  let countryCountsGlobal = new Map();
+  let sourceCountsGlobal = new Map();
+  let orderedSubtypes = [];
+  let orderedCountries = [];
+  let orderedSources = [];
+  let sparseSubtypesGlobal = [];
+
+  const refreshDatasetCatalogs = () => {
+    dataById = new Map(data.map((row) => [row.Community_ID, row]));
+    subtypeCountsGlobal = countBy(data, 'Subtype');
+    countryCountsGlobal = countBy(data, 'Country');
+    sourceCountsGlobal = countBy(data, 'Source_Directory');
+    orderedSubtypes = sortEntries(Array.from(subtypeCountsGlobal.entries())).map(([name]) => name);
+    orderedCountries = Array.from(countryCountsGlobal.keys()).sort(collator.compare);
+    orderedSources = sortEntries(Array.from(sourceCountsGlobal.entries())).map(([name]) => name);
+    sparseSubtypesGlobal = orderedSubtypes.filter((subtype) => (subtypeCountsGlobal.get(subtype) || 0) <= 5);
+  };
+
+  const ingestDatasetRows = (rows) => {
+    const incomingRows = Array.isArray(rows) ? rows : [];
+    let added = 0;
+    incomingRows.forEach((row) => {
+      if (!row || !row.Community_ID || dataById.has(row.Community_ID)) return;
+      data.push(enrichRow(row, data.length));
+      added += 1;
+    });
+    if (!added) return 0;
+    refreshDatasetCatalogs();
+    return added;
+  };
+
+  refreshDatasetCatalogs();
 
   const els = {};
   const state = {
@@ -443,12 +471,20 @@
 
     try {
       const response = await requestAssistantResponse(nextQuery);
+      const createdRows = response && response.mutations && Array.isArray(response.mutations.createdCommunities)
+        ? response.mutations.createdCommunities
+        : [];
+      const addedCount = ingestDatasetRows(createdRows);
       state.aiResponse = response;
       state.aiPending = false;
       state.aiStatus = 'ok';
       state.aiError = response.warning || '';
       state.assistantTransport = response.transport || 'openai-responses';
       if (state.sort === 'name-asc') state.sort = 'relevance';
+      if (response && response.mutations && Array.isArray(response.mutations.createdCommunityIds) && response.mutations.createdCommunityIds.length) {
+        state.selectedId = response.mutations.createdCommunityIds[0];
+        if (addedCount > 0) showToast(`${addedCount === 1 ? '1 new community was' : `${addedCount} new communities were`} added to the dataset.`);
+      }
       addConversationMessage({
         role: 'assistant',
         text: response.answerMarkdown || '',
@@ -1032,6 +1068,9 @@
             <div class="detail-meta-row"><div class="key">Directory source</div><div>${escapeHtml(row.Source_Directory)}</div></div>
             <div class="detail-meta-row"><div class="key">Verification</div><div>${escapeHtml(row.Verification_Method)}</div></div>
             <div class="detail-meta-row"><div class="key">Characterization status</div><div>${escapeHtml(row.Narrative_Grounding)}</div></div>
+            ${row.Entry_Date ? `<div class="detail-meta-row"><div class="key">Entry date</div><div>${escapeHtml(row.Entry_Date)}</div></div>` : ''}
+            ${row.Entered_By ? `<div class="detail-meta-row"><div class="key">Entered by</div><div>${escapeHtml(row.Entered_By)}</div></div>` : ''}
+            ${row.Entry_Method ? `<div class="detail-meta-row"><div class="key">Entry method</div><div>${escapeHtml(row.Entry_Method)}</div></div>` : ''}
           </div>
         </section>
       </div>

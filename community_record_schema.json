@@ -87,6 +87,15 @@
     },
     "Narrative_Grounding": {
       "type": "string"
+    },
+    "Entry_Date": {
+      "type": "string"
+    },
+    "Entered_By": {
+      "type": "string"
+    },
+    "Entry_Method": {
+      "type": "string"
     }
   },
   "additionalProperties": false

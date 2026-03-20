@@ -32,36 +32,49 @@
       <div class="section-header">
         <div>
           <h2>AI Discovery</h2>
-          <div class="subtle">Natural-language discovery over the current dataset, with transparent evidence from the fields already in C2A2.</div>
+          <div class="subtle">Conversational discovery over the current dataset first, with an optional path to search beyond it when you ask or local fit is weak.</div>
         </div>
         <div class="hero-meta ai-meta">
           <span class="meta-pill">Dataset grounded</span>
-          <span class="meta-pill">Static-friendly fallback</span>
+          <span class="meta-pill" id="assistant-transport-pill">Static-friendly fallback</span>
         </div>
       </div>
       <div class="ai-query-layout">
-        <section class="ai-query-inputs">
-          <label class="control-label" for="ai-query-input">Ask for communities in plain language</label>
-          <textarea id="ai-query-input" rows="4" placeholder="Example: Find communities focused on youth civic action and technical mentorship."></textarea>
-          <div class="inline-actions">
-            <button class="action-button primary" id="run-ai-query" type="button">Run AI query</button>
-            <button class="action-button" id="clear-ai-query" type="button">Clear AI query</button>
+        <section class="ai-query-output">
+          <div class="conversation-shell">
+            <div class="conversation-toolbar">
+              <div class="conversation-status">
+                <strong id="assistant-mode-label">Assistant ready</strong>
+                <div class="subtle" id="ai-query-status">The assistant searches the current dataset first. Run the local static page or the optional server-backed mode.</div>
+              </div>
+              <button class="action-button" id="clear-ai-conversation" type="button">Clear conversation</button>
+            </div>
+            <div class="conversation-scroll" id="ai-conversation">
+              <article class="conversation-message assistant">
+                <div class="message-meta">Assistant</div>
+                <div class="message-body">Ask a question in plain language. I will search the current dataset first, explain what I found, and suggest what to do next.</div>
+              </article>
+            </div>
           </div>
-          <div class="prompt-chip-row">
-            <button type="button" class="prompt-chip" data-ai-example="Find communities focused on youth civic action and technical mentorship.">Youth civic action + technical mentorship</button>
-            <button type="button" class="prompt-chip" data-ai-example="Show communities whose organizing principle emphasizes open standards.">Open standards</button>
-            <button type="button" class="prompt-chip" data-ai-example="Which communities address mistrust through deliberation, education, and peer support?">Mistrust + deliberation + peer support</button>
-          </div>
-          <div class="search-status subtle" id="ai-query-status">This first release interprets your request against the current dataset only. Existing filters, charts, and keyword fallback remain available below.</div>
         </section>
 
-        <section class="ai-query-output">
-          <div class="ai-answer-card" id="ai-answer-panel">
-            <h3>AI answer</h3>
-            <p class="subtle">No AI query yet. Results, charts, and the detail panel will update when you run one.</p>
+        <section class="ai-query-inputs">
+          <label class="control-label" for="ai-query-input">Ask for communities in plain language</label>
+          <textarea id="ai-query-input" rows="4" placeholder="Example: How many communities are located in Europe?"></textarea>
+          <div class="toggle-row">
+            <label class="toggle-label"><input type="checkbox" id="allow-external-search"> Allow the assistant to extend beyond the dataset when needed or when I ask</label>
           </div>
-          <div class="ai-interpretation-card" id="ai-interpretation-panel"></div>
-          <div class="ai-citations-card" id="ai-citations-panel"></div>
+          <div class="inline-actions">
+            <button class="action-button primary" id="run-ai-query" type="button">Send</button>
+            <button class="action-button" id="clear-ai-query" type="button">Clear draft</button>
+          </div>
+          <div class="prompt-chip-row">
+            <button type="button" class="prompt-chip" data-ai-example="How many communities are located in Europe?">Count Europe</button>
+            <button type="button" class="prompt-chip" data-ai-example="Find communities focused on youth civic action and technical mentorship.">Youth civic action + technical mentorship</button>
+            <button type="button" class="prompt-chip" data-ai-example="Show communities whose organizing principle emphasizes open standards.">Open standards</button>
+            <button type="button" class="prompt-chip" data-ai-example="If nothing local fits, search beyond the dataset for communities that address mistrust through deliberation, education, and peer support.">Extend beyond dataset</button>
+          </div>
+          <div class="search-status subtle">The explorer list, charts, and detail panel follow the latest assistant turn. Keyword search below still works as an exact-text filter on top.</div>
         </section>
       </div>
     </section>

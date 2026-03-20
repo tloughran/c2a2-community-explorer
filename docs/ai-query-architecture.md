@@ -2,34 +2,41 @@
 
 ## Scope
 
-This first production-credible AI layer is dataset-grounded only. It interprets natural-language prompts, ranks matching communities from the existing C2A2 dataset, and synthesizes a short explanation with evidence snippets drawn from the matched dataset rows.
+This assistant layer is dataset-first. It interprets natural-language prompts, answers locally over the current C2A2 dataset, and can optionally upgrade to an OpenAI-backed server flow when a local server and API key are available.
 
-It does not make webpage-grounded claims yet. The current authoritative input is still the existing `data.js` dataset.
+The authoritative local input is still the existing dataset. External search is an opt-in extension path rather than the default.
 
 ## Current flow
 
-1. `index.html` renders a top-level AI Discovery panel while keeping the original explorer layout, charts, filters, and detail panel.
-2. `ai-query-core.js` provides the retrieval pipeline:
+1. `index.html` renders a top-level assistant panel with a scrollable transcript and sticky clear action while keeping the explorer layout, charts, filters, and detail panel.
+2. `ai-query-core.js` provides the shared local planner:
    - prompt interpretation
+   - region and count handling
    - field-aware ranking over the current dataset
-   - explanation synthesis
-   - citation/evidence packaging
-3. `app.js` treats the AI query response as another ranked slice of the same dataset:
+   - answer synthesis
+   - evidence packaging
+3. `app.js` treats the latest assistant turn as another ranked slice of the same dataset:
    - the result table updates
-   - charts and metrics recompute against the AI-ranked slice
+   - charts and metrics recompute against the latest recommended slice
    - the detail panel shows why the selected row matched
    - keyword search remains available as a fallback or second-pass filter
+4. `server.js` optionally serves the app and `/api/query`:
+   - local fallback if no server LLM is available
+   - OpenAI-backed answer synthesis when `OPENAI_API_KEY` is present
+   - outside-the-dataset search only when allowed
 
 ## Retrieval model
 
-The local adapter is intentionally inspectable:
+The local adapter is intentionally inspectable and handles more than simple retrieval:
 
 - `interpretPrompt(prompt)` extracts keywords, a small set of meaningful adjacent phrases, and field-focus hints.
+- `buildIntent(prompt, rows, requestedMode)` adds count/list intent detection, region detection, and search-scope routing.
 - `buildRowAiIndex(row, options)` normalizes the current dataset fields into a reusable retrieval index.
 - `runDatasetQuery(rows, prompt, options)` scores rows, filters weak matches, and returns structured output:
   - `answer.summary`
   - `answer.citations`
   - `matches[]` with scores, reasons, and evidence
+- `answerQueryLocally(rows, prompt, options)` returns an assistant-ready English answer, ranked IDs, evidence, next steps, and a signal for whether external search would help.
 
 The current field weighting favors:
 
@@ -49,8 +56,10 @@ The intended next step is to attach webpage-derived grounding passages per commu
 
 ## Fallback behavior
 
-- If the AI module is unavailable, the app still loads and the explorer continues to work with filters, charts, detail rendering, downloads, URL state, and keyword search.
+- If the server is unavailable, the app still loads and the assistant uses the local dataset planner.
+- If `OPENAI_API_KEY` is not set, the server still works in local-answer mode.
 - If an AI query returns no strong matches, the UI explains that outcome and keeps the rest of the explorer usable.
+- The transcript remains visible and scrollable, and the clear action stays in sight.
 
 ## Validation
 
@@ -58,6 +67,7 @@ Run:
 
 ```bash
 node test_ai_query_smoke.js
+node test_assistant_query_smoke.js
 ```
 
-This validates that the local AI retrieval path returns structured matches, explanations, and evidence for representative prompts.
+This validates both the local retrieval path and the assistant-style local answers for representative prompts such as regional count queries.

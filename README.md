@@ -13,15 +13,20 @@ This project turns the rebuilt community directory into a static, interactive we
 - `search-core.js` - reusable search normalization and ranking helpers shared by the browser app and smoke tests
 - `ai-query-core.js` - dataset-grounded AI query interpretation, ranking, explanation, and citation helpers
 - `app.js` - filtering, visualization, pagination, detail panel, and prompt-generation logic
+- `server.js` - optional local server that serves the app and upgrades the assistant to an OpenAI-backed endpoint when `OPENAI_API_KEY` is set
+- `package.json` - lightweight scripts for local server and smoke tests
 - `community_record_schema.json` - a JSON Schema starter for future ingestion and validation
 - `c2a2_community_explorer.html` - standalone single-file version for quick opening and sharing
 - `test_search_smoke.js` - Node smoke test for the tokenized search logic
 - `test_ai_query_smoke.js` - Node smoke test for the dataset-grounded AI retrieval path
+- `test_assistant_query_smoke.js` - Node smoke test for local assistant answers such as count and region queries
 - `docs/ai-query-architecture.md` - design note for the staged AI discovery layer and future webpage grounding
 
 ## What the interface currently does
 
-- AI Discovery panel for natural-language requests over the current dataset, with inspectable evidence and citations
+- AI assistant panel with a scrollable conversation transcript, pinned clear action, and plain-English answers
+- Dataset-first natural-language requests with local count, summarize, and retrieval behavior
+- Optional server-assisted mode that can upgrade answers to an OpenAI-backed assistant and extend beyond the dataset when allowed
 - Faceted filtering by type, subtype, country, source, and text search
 - Interactive type x subtype heatmap
 - Bar visualizations for subtype, country, and source coverage
@@ -32,16 +37,17 @@ This project turns the rebuilt community directory into a static, interactive we
 
 ## AI discovery layer
 
-This branch introduces a first production-credible AI interaction layer without adding a server requirement.
+This branch now supports two assistant modes:
 
-- The new AI panel is client-side and operates over the current dataset only.
-- Natural-language prompts are interpreted into a structured retrieval request.
-- Matching rows are ranked using existing dataset fields such as subtype, organizing principle, PRS triplets, and source metadata.
-- The interface now returns both a ranked slice of communities and a short natural-language explanation with evidence snippets from the matched rows.
+- Static-only mode: open `index.html` directly and the assistant uses the local dataset planner in the browser.
+- Server-assisted mode: run `node server.js` and the same UI can call `/api/query`.
+- If `OPENAI_API_KEY` is set, the server can upgrade local answers to an OpenAI-backed assistant using the Responses API.
+- The assistant still searches the existing dataset first.
+- It only widens beyond the dataset when local fit is weak or the user explicitly asks.
 - Existing filters, visualizations, URL state, downloads, and detail rendering remain intact.
 - Keyword search remains available as a fallback or second-pass exact-text filter.
 
-See [`docs/ai-query-architecture.md`](docs/ai-query-architecture.md) for the staged design and future grounding hook.
+See [`docs/ai-query-architecture.md`](docs/ai-query-architecture.md) for the staged design and future grounding hook, and [`server/query_contract.json`](server/query_contract.json) for the request/response shape.
 
 ## Search fix in this revision
 
@@ -61,6 +67,27 @@ Run this from the project directory:
 ```bash
 node test_search_smoke.js
 node test_ai_query_smoke.js
+node test_assistant_query_smoke.js
+```
+
+## Run locally
+
+Static fallback:
+
+```bash
+open index.html
+```
+
+Optional local server with assistant endpoint:
+
+```bash
+node server.js
+```
+
+Optional OpenAI-backed mode:
+
+```bash
+OPENAI_API_KEY=... node server.js
 ```
 
 ## Recommended next steps for the next iteration
@@ -78,7 +105,7 @@ For the full AI-enabled explorer, open:
 
 - `index.html` for the modular version.
 
-The standalone single-file snapshot remains available for quick sharing, but the new AI discovery layer is implemented in the modular app:
+The standalone single-file snapshot remains available for quick sharing, but the new assistant flow is implemented in the modular app:
 
 - `c2a2_community_explorer.html`
 

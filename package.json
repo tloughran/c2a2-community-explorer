@@ -1,0 +1,11 @@
+{
+  "name": "c2a2-community-explorer",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js",
+    "test:search": "node test_search_smoke.js",
+    "test:ai": "node test_ai_query_smoke.js",
+    "test:assistant": "node test_assistant_query_smoke.js"
+  }
+}

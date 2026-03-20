@@ -20,46 +20,96 @@
           },
           "required": ["search", "types", "subtypes", "country", "source", "manualOnly", "geoOnly"]
         },
+        "conversation": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "role": { "type": "string", "enum": ["user", "assistant"] },
+              "text": { "type": "string" }
+            },
+            "required": ["role", "text"]
+          }
+        },
         "mode": {
           "type": "string",
           "enum": ["database_only", "database_plus_web"]
         }
       },
-      "required": ["prompt", "current_filters", "mode"]
+      "required": ["prompt", "current_filters", "mode", "conversation"]
     },
     "response": {
       "type": "object",
       "properties": {
-        "answer_markdown": { "type": "string" },
-        "suggested_filters": {
+        "assistantMode": { "type": "string" },
+        "transport": { "type": "string" },
+        "searchScope": {
+          "type": "string",
+          "enum": ["database_only", "database_plus_web"]
+        },
+        "answerMarkdown": { "type": "string" },
+        "warning": { "type": "string" },
+        "suggestedFilters": {
           "type": "object",
           "properties": {
             "search": { "type": "string" },
             "types": { "type": "array", "items": { "type": "string" } },
             "subtypes": { "type": "array", "items": { "type": "string" } },
             "country": { "type": "string" },
-            "source": { "type": "string" }
+            "source": { "type": "string" },
+            "manualOnly": { "type": "boolean" },
+            "geoOnly": { "type": "boolean" }
           }
         },
-        "recommended_ids": {
+        "recommendedIds": {
           "type": "array",
           "items": { "type": "string" }
+        },
+        "rankedMatches": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "communityId": { "type": "string" },
+              "communityName": { "type": "string" },
+              "score": { "type": "number" },
+              "reason": { "type": "string" }
+            },
+            "required": ["communityId", "communityName", "score", "reason"]
+          }
         },
         "evidence": {
           "type": "array",
           "items": {
             "type": "object",
             "properties": {
-              "community_id": { "type": "string" },
-              "source_url": { "type": "string" },
+              "communityId": { "type": "string" },
+              "communityName": { "type": "string" },
+              "sourceUrl": { "type": "string" },
               "excerpt": { "type": "string" },
               "provenance": { "type": "string" }
             },
-            "required": ["community_id", "source_url", "excerpt", "provenance"]
+            "required": ["communityId", "sourceUrl", "excerpt", "provenance"]
+          }
+        },
+        "followUpSuggestions": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "externalFindings": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "title": { "type": "string" },
+              "url": { "type": "string" },
+              "note": { "type": "string" }
+            },
+            "required": ["title", "url", "note"]
           }
         }
       },
-      "required": ["answer_markdown", "recommended_ids", "evidence"]
+      "required": ["assistantMode", "searchScope", "answerMarkdown", "recommendedIds", "rankedMatches", "evidence", "followUpSuggestions"]
     }
   },
   "required": ["request", "response"]

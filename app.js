@@ -8,7 +8,12 @@
     return;
   }
   const { buildRowSearchIndex, parseSearchQuery, scoreRowAgainstTerms } = SearchCore;
-  const canUseAiQuery = Boolean(AIQueryCore && AIQueryCore.runDatasetQuery && AIQueryCore.buildRowAiIndex);
+  const canUseAiQuery = Boolean(
+    AIQueryCore &&
+    AIQueryCore.answerQueryLocally &&
+    AIQueryCore.runDatasetQuery &&
+    AIQueryCore.buildRowAiIndex
+  );
 
   const data = (window.COMMUNITY_DATA || []).map((row, index) => {
     const searchIndex = buildRowSearchIndex(row);
@@ -57,6 +62,10 @@
     aiResponse: null,
     aiStatus: canUseAiQuery ? 'idle' : 'unavailable',
     aiError: canUseAiQuery ? '' : 'AI discovery is unavailable, so the explorer will stay in keyword-and-filter mode.',
+    aiConversation: [],
+    aiPending: false,
+    allowExternalSearch: false,
+    assistantTransport: window.location.protocol === 'file:' ? 'local-static' : 'server-or-local',
     search: '',
     types: new Set(),
     subtypes: new Set(),
@@ -155,7 +164,7 @@
 
   const toCsv = (rows) => {
     if (!rows.length) return '';
-    const headers = Object.keys(rows[0]).filter((key) => !key.startsWith('__') && !['hasEmail', 'manualCuration', 'geoGap', 'searchBlob', 'searchIndex'].includes(key));
+    const headers = Object.keys(rows[0]).filter((key) => !key.startsWith('__') && !['hasEmail', 'manualCuration', 'geoGap', 'searchBlob', 'searchIndex', 'aiIndex'].includes(key));
     const escapeCell = (value) => {
       const text = String(value ?? '');
       if (/[,"\n]/.test(text)) return '"' + text.replace(/"/g, '""') + '"';
@@ -175,6 +184,7 @@
   const hydrateStateFromUrl = () => {
     const params = getQueryParams();
     state.aiQuery = params.get('ai') || '';
+    state.allowExternalSearch = params.get('ext') === '1';
     state.search = params.get('q') || '';
     state.types = new Set((params.get('types') || '').split('|').filter(Boolean));
     state.subtypes = new Set((params.get('subtypes') || '').split('|').filter(Boolean));
@@ -204,6 +214,7 @@
       };
       setParam('q', state.search.trim() || '');
       setParam('ai', state.aiQuery.trim() || '');
+      setParam('ext', state.allowExternalSearch ? '1' : '');
       setParam('types', state.types.size ? Array.from(state.types).join('|') : '');
       setParam('subtypes', state.subtypes.size ? Array.from(state.subtypes).join('|') : '');
       setParam('country', state.country || '');
@@ -225,6 +236,9 @@
     state.aiResponse = null;
     state.aiStatus = canUseAiQuery ? 'idle' : 'unavailable';
     state.aiError = canUseAiQuery ? '' : 'AI discovery is unavailable, so the explorer will stay in keyword-and-filter mode.';
+    state.aiConversation = [];
+    state.aiPending = false;
+    state.allowExternalSearch = false;
     state.search = '';
     state.types = new Set();
     state.subtypes = new Set();
@@ -242,6 +256,7 @@
 
   const syncControls = () => {
     if (els.aiQuery) els.aiQuery.value = state.aiQuery;
+    if (els.allowExternalSearch) els.allowExternalSearch.checked = state.allowExternalSearch;
     els.search.value = state.search;
     els.country.value = state.country;
     els.source.value = state.source;
@@ -251,14 +266,87 @@
     els.geoOnly.checked = state.geoOnly;
   };
 
-  const runAiQuery = (value = '') => {
+  const buildCurrentFiltersPayload = () => ({
+    search: state.search.trim(),
+    types: Array.from(state.types),
+    subtypes: Array.from(state.subtypes),
+    country: state.country,
+    source: state.source,
+    manualOnly: state.manualOnly,
+    geoOnly: state.geoOnly,
+  });
+
+  const addConversationMessage = (message) => {
+    state.aiConversation = state.aiConversation.concat({
+      id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      ...message,
+    });
+  };
+
+  const clearConversation = () => {
+    state.aiQuery = '';
+    state.aiResponse = null;
+    state.aiConversation = [];
+    state.aiPending = false;
+    state.aiStatus = canUseAiQuery ? 'idle' : 'unavailable';
+    state.aiError = canUseAiQuery ? '' : 'AI discovery is unavailable, so the explorer will stay in keyword-and-filter mode.';
+    state.assistantTransport = window.location.protocol === 'file:' ? 'local-static' : 'server-or-local';
+    syncControls();
+    update();
+  };
+
+  const requestAssistantResponse = async (prompt) => {
+    const requestPayload = {
+      prompt,
+      conversation: state.aiConversation.map((message) => ({
+        role: message.role,
+        text: message.text || message.answerMarkdown || '',
+      })),
+      current_filters: buildCurrentFiltersPayload(),
+      mode: state.allowExternalSearch ? 'database_plus_web' : 'database_only',
+    };
+    const localFallback = AIQueryCore.answerQueryLocally(data, prompt, {
+      currentFilters: requestPayload.current_filters,
+      mode: requestPayload.mode,
+      limit: 150,
+    });
+    if (window.location.protocol === 'file:') {
+      return {
+        ...localFallback,
+        transport: 'local-static',
+      };
+    }
+    try {
+      const response = await fetch('/api/query', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestPayload),
+      });
+      if (!response.ok) {
+        throw new Error(`Assistant request failed with status ${response.status}.`);
+      }
+      return await response.json();
+    } catch (error) {
+      return {
+        ...localFallback,
+        warning: error && error.message ? error.message : 'The server assistant was unavailable, so the local dataset assistant handled this turn.',
+        transport: 'local-fallback',
+      };
+    }
+  };
+
+  const scrollConversationToBottom = () => {
+    if (!els.aiConversation) return;
+    requestAnimationFrame(() => {
+      els.aiConversation.scrollTop = els.aiConversation.scrollHeight;
+    });
+  };
+
+  const runAiQuery = async (value = '') => {
     const nextQuery = String(value ?? '').trim();
     state.aiQuery = nextQuery;
     state.page = 1;
     if (!nextQuery) {
-      state.aiResponse = null;
-      state.aiStatus = canUseAiQuery ? 'idle' : 'unavailable';
-      state.aiError = canUseAiQuery ? '' : 'AI discovery is unavailable, so the explorer will stay in keyword-and-filter mode.';
       syncControls();
       update();
       return;
@@ -271,25 +359,59 @@
       update();
       return;
     }
+
+    addConversationMessage({ role: 'user', text: nextQuery });
+    state.aiPending = true;
+    state.aiStatus = 'pending';
+    state.aiError = '';
+    syncControls();
+    update();
+    scrollConversationToBottom();
+
     try {
-      state.aiResponse = AIQueryCore.runDatasetQuery(data, nextQuery, { limit: 250 });
+      const response = await requestAssistantResponse(nextQuery);
+      state.aiResponse = response;
+      state.aiPending = false;
       state.aiStatus = 'ok';
-      state.aiError = '';
+      state.aiError = response.warning || '';
+      state.assistantTransport = response.transport || 'local-static';
       if (state.sort === 'name-asc') state.sort = 'relevance';
+      addConversationMessage({
+        role: 'assistant',
+        text: response.answerMarkdown || '',
+        response,
+      });
     } catch (error) {
-      state.aiResponse = null;
+      state.aiPending = false;
       state.aiStatus = 'unavailable';
       state.aiError = error && error.message
         ? error.message
         : 'AI discovery hit an unexpected error, so the explorer stayed available in fallback mode.';
+      addConversationMessage({
+        role: 'assistant',
+        text: state.aiError,
+        response: {
+          assistantMode: 'error',
+          answerMarkdown: state.aiError,
+          evidence: [],
+          followUpSuggestions: ['Try the keyword fallback below while the assistant recovers.'],
+          rankedMatches: [],
+        },
+      });
     }
     syncControls();
     update();
+    scrollConversationToBottom();
   };
 
   const getAiMatchMap = () => {
-    if (!state.aiQuery.trim() || !state.aiResponse || !Array.isArray(state.aiResponse.matches)) return null;
-    return new Map(state.aiResponse.matches.map((match) => [match.communityId, match]));
+    const rankedMatches = state.aiResponse && Array.isArray(state.aiResponse.rankedMatches)
+      ? state.aiResponse.rankedMatches
+      : state.aiResponse && Array.isArray(state.aiResponse.matches)
+        ? state.aiResponse.matches
+        : [];
+    if (!state.aiQuery.trim() || !rankedMatches.length) return null;
+    return new Map(rankedMatches.map((match) => [match.communityId, match]));
   };
 
   const buildAiAnswerStatus = () => {
@@ -297,6 +419,12 @@
       return {
         label: 'Fallback mode',
         className: 'unavailable',
+      };
+    }
+    if (state.aiStatus === 'pending') {
+      return {
+        label: 'Assistant is thinking',
+        className: '',
       };
     }
     if (!state.aiQuery.trim()) {
@@ -571,7 +699,7 @@
 
   const renderActiveFilters = () => {
     const chips = [];
-    if (state.aiQuery.trim()) chips.push({ label: `AI query: ${state.aiQuery.trim()}`, clear: () => { state.aiQuery = ''; state.aiResponse = null; state.aiStatus = canUseAiQuery ? 'idle' : 'unavailable'; state.aiError = canUseAiQuery ? '' : 'AI discovery is unavailable, so the explorer will stay in keyword-and-filter mode.'; if (els.aiQuery) els.aiQuery.value = ''; } });
+    if (state.aiQuery.trim()) chips.push({ label: `AI query: ${state.aiQuery.trim()}`, clear: () => { state.aiQuery = ''; state.aiResponse = null; state.aiConversation = []; state.aiPending = false; state.aiStatus = canUseAiQuery ? 'idle' : 'unavailable'; state.aiError = canUseAiQuery ? '' : 'AI discovery is unavailable, so the explorer will stay in keyword-and-filter mode.'; if (els.aiQuery) els.aiQuery.value = ''; } });
     if (state.search.trim()) chips.push({ label: `Search: ${state.search.trim()}`, clear: () => { state.search = ''; els.search.value = ''; } });
     Array.from(state.types).forEach((type) => chips.push({ label: `Type: ${type}`, clear: () => state.types.delete(type) }));
     Array.from(state.subtypes).forEach((subtype) => chips.push({ label: `Subtype: ${subtype}`, clear: () => state.subtypes.delete(subtype) }));
@@ -591,106 +719,103 @@
 
   const renderAiPanels = () => {
     const status = buildAiAnswerStatus();
+    const transportLabel = state.aiResponse && state.aiResponse.assistantMode
+      ? state.aiResponse.assistantMode
+      : state.aiPending
+        ? 'Assistant is thinking'
+        : 'Assistant ready';
+    if (els.assistantModeLabel) els.assistantModeLabel.textContent = transportLabel.replace(/-/g, ' ');
+    if (els.assistantTransportPill) {
+      els.assistantTransportPill.textContent = state.assistantTransport === 'openai-responses'
+        ? 'OpenAI Responses API'
+        : state.assistantTransport === 'server-or-local'
+          ? 'Server-aware fallback'
+          : state.assistantTransport;
+    }
+
     if (state.aiStatus === 'unavailable') {
       els.aiQueryStatus.textContent = 'AI discovery is unavailable here, so the explorer remains fully usable with keyword search, filters, charts, and detail views.';
-      els.aiAnswer.innerHTML = `
-        <h3>AI answer</h3>
-        <p>${escapeHtml(state.aiError || 'AI discovery is unavailable in this build.')}</p>
-        <div class="ai-answer-status ${status.className}">${escapeHtml(status.label)}</div>
-      `;
-      els.aiInterpretation.innerHTML = `
-        <h3>Query interpretation</h3>
-        <div class="empty-state">The AI module did not load, so there is no interpreted query to inspect.</div>
-      `;
-      els.aiCitations.innerHTML = `
-        <h3>Evidence and citations</h3>
-        <div class="empty-state">No AI evidence to display. Use keyword search below as the fallback path.</div>
+    } else if (state.aiPending) {
+      els.aiQueryStatus.textContent = 'The assistant is assembling an answer in English and will update the explorer when the turn completes.';
+    } else if (state.aiResponse && state.aiResponse.searchScope === 'database_plus_web') {
+      els.aiQueryStatus.textContent = 'This turn is allowed to extend beyond the dataset when local fit is weak or when you asked for outside search.';
+    } else {
+      els.aiQueryStatus.textContent = 'The assistant searches the current dataset first. Run the local static page or the optional server-backed mode.';
+    }
+
+    const conversation = [...state.aiConversation];
+    if (state.aiPending) {
+      conversation.push({
+        id: 'pending',
+        role: 'assistant',
+        text: 'Thinking through the current dataset and deciding whether the request needs wider search...',
+        response: {
+          followUpSuggestions: [],
+          evidence: [],
+          rankedMatches: [],
+        }
+      });
+    }
+
+    if (!conversation.length) {
+      els.aiConversation.innerHTML = `
+        <div class="message-empty">Ask a question in plain language. I will search the current dataset first, explain what I found, and suggest what to do next.</div>
       `;
       return;
     }
 
-    if (!state.aiQuery.trim() || !state.aiResponse) {
-      els.aiQueryStatus.textContent = 'This first release interprets your request against the current dataset only. Existing filters, charts, and keyword fallback remain available below.';
-      els.aiAnswer.innerHTML = `
-        <h3>AI answer</h3>
-        <p class="subtle">No AI query yet. Results, charts, and the detail panel will update when you run one.</p>
-        <div class="ai-answer-status ${status.className}">${escapeHtml(status.label)}</div>
-      `;
-      els.aiInterpretation.innerHTML = `
-        <h3>Query interpretation</h3>
-        <div class="empty-state">Run a natural-language query to inspect the interpreted concepts, field focus, and grounding mode.</div>
-      `;
-      els.aiCitations.innerHTML = `
-        <h3>Evidence and citations</h3>
-        <div class="empty-state">Citations appear here once the explorer ranks communities for a query.</div>
-      `;
-      return;
-    }
-
-    const response = state.aiResponse;
-    const interpretation = response.interpretation || {};
-    const citations = response.answer && Array.isArray(response.answer.citations) ? response.answer.citations : [];
-    els.aiQueryStatus.textContent = `Dataset-grounded mode is active for "${state.aiQuery}". The result table, charts, and detail panel below are now ranked from this query, and keyword search can narrow the slice further.`;
-    els.aiAnswer.innerHTML = `
-      <h3>AI answer</h3>
-      <p>${escapeHtml((response.answer && response.answer.summary) || 'No AI answer available.')}</p>
-      <div class="ai-answer-status ${status.className}">${escapeHtml(status.label)}</div>
-    `;
-    els.aiInterpretation.innerHTML = `
-      <h3>Query interpretation</h3>
-      <div class="ai-interpretation-grid">
-        <article class="ai-kv">
-          <div class="ai-kv-label">Prompt focus</div>
-          <div class="ai-chip-list">
-            ${(interpretation.keywordLabels || []).length
-              ? interpretation.keywordLabels.map((label) => `<span class="ai-chip">${escapeHtml(label)}</span>`).join('')
-              : '<span class="subtle">No primary concepts extracted.</span>'}
-          </div>
-        </article>
-        <article class="ai-kv">
-          <div class="ai-kv-label">Phrase cues</div>
-          <div class="ai-chip-list">
-            ${(interpretation.phraseLabels || []).length
-              ? interpretation.phraseLabels.map((label) => `<span class="ai-chip subtle">${escapeHtml(label)}</span>`).join('')
-              : '<span class="subtle">No phrase cues extracted.</span>'}
-          </div>
-        </article>
-        <article class="ai-kv">
-          <div class="ai-kv-label">Field focus</div>
-          <div class="ai-chip-list">
-            ${(interpretation.focusFields || []).length
-              ? interpretation.focusFields.map((label) => `<span class="ai-chip">${escapeHtml(label)}</span>`).join('')
-              : '<span class="subtle">Using balanced field weights across the dataset.</span>'}
-          </div>
-        </article>
-        <article class="ai-kv">
-          <div class="ai-kv-label">Grounding mode</div>
-          <div class="ai-chip-list">
-            <span class="ai-chip subtle">Current source: dataset rows</span>
-            <span class="ai-chip subtle">Future hook: webpage grounding documents</span>
-          </div>
-        </article>
-      </div>
-    `;
-    els.aiCitations.innerHTML = `
-      <h3>Evidence and citations</h3>
-      ${citations.length ? `<div class="ai-citation-list">${citations.map((citation) => `
-        <article class="ai-citation">
-          <div class="ai-citation-header">
-            <div class="ai-citation-title">${escapeHtml(citation.communityName)}</div>
-            <div class="ai-citation-id">${escapeHtml(citation.communityId)}</div>
-          </div>
-          <div class="ai-evidence-list">
-            ${(citation.evidence || []).map((item) => `
-              <div class="ai-evidence-item">
-                <strong>${escapeHtml(item.fieldLabel)}</strong>
-                <div>${escapeHtml(item.snippet)}</div>
+    els.aiConversation.innerHTML = conversation.map((message) => {
+      const response = message.response || {};
+      const evidence = Array.isArray(response.evidence) ? response.evidence : [];
+      const followUps = Array.isArray(response.followUpSuggestions) ? response.followUpSuggestions : [];
+      const externalFindings = Array.isArray(response.externalFindings) ? response.externalFindings : [];
+      const tags = [];
+      if (message.role === 'assistant' && response.assistantMode) tags.push({ label: response.assistantMode, className: '' });
+      if (message.role === 'assistant' && response.transport) tags.push({ label: response.transport, className: '' });
+      if (message.role === 'assistant' && response.warning) tags.push({ label: response.warning, className: 'warning' });
+      return `
+        <article class="conversation-message ${escapeHtml(message.role)}${message.id === 'pending' ? ' pending' : ''}">
+          <div class="message-meta">${message.role === 'user' ? 'You' : 'Assistant'}</div>
+          <div class="message-body">${escapeHtml(message.text || '')}</div>
+          ${tags.length ? `<div class="message-tags">${tags.map((tag) => `<span class="message-pill${tag.className ? ` ${tag.className}` : ''}">${escapeHtml(tag.label)}</span>`).join('')}</div>` : ''}
+          ${message.role === 'assistant' && evidence.length ? `
+            <section class="message-section">
+              <h4>Evidence</h4>
+              <div class="message-list">
+                ${evidence.slice(0, 4).map((item) => `
+                  <div class="message-item">
+                    <strong>${escapeHtml(item.communityName || item.communityId || 'Dataset evidence')}</strong>
+                    <div>${escapeHtml(item.excerpt || '')}</div>
+                  </div>
+                `).join('')}
               </div>
-            `).join('')}
-          </div>
+            </section>
+          ` : ''}
+          ${message.role === 'assistant' && externalFindings.length ? `
+            <section class="message-section">
+              <h4>Outside-the-dataset findings</h4>
+              <div class="message-list">
+                ${externalFindings.map((item) => `
+                  <div class="message-item">
+                    <strong>${escapeHtml(item.title)}</strong>
+                    <div>${escapeHtml(item.note)}</div>
+                    <a href="${escapeHtml(item.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(item.url)}</a>
+                  </div>
+                `).join('')}
+              </div>
+            </section>
+          ` : ''}
+          ${message.role === 'assistant' && followUps.length ? `
+            <section class="message-section">
+              <h4>What I can do next</h4>
+              <div class="message-list">
+                ${followUps.map((item) => `<div class="message-item">${escapeHtml(item)}</div>`).join('')}
+              </div>
+            </section>
+          ` : ''}
         </article>
-      `).join('')}</div>` : '<div class="empty-state">No evidence snippets were returned for this query.</div>'}
-    `;
+      `;
+    }).join('');
   };
 
   const renderResults = (rows) => {
@@ -910,10 +1035,12 @@
     els.aiQuery = document.querySelector('#ai-query-input');
     els.runAiQuery = document.querySelector('#run-ai-query');
     els.clearAiQuery = document.querySelector('#clear-ai-query');
+    els.clearAiConversation = document.querySelector('#clear-ai-conversation');
+    els.allowExternalSearch = document.querySelector('#allow-external-search');
     els.aiQueryStatus = document.querySelector('#ai-query-status');
-    els.aiAnswer = document.querySelector('#ai-answer-panel');
-    els.aiInterpretation = document.querySelector('#ai-interpretation-panel');
-    els.aiCitations = document.querySelector('#ai-citations-panel');
+    els.aiConversation = document.querySelector('#ai-conversation');
+    els.assistantModeLabel = document.querySelector('#assistant-mode-label');
+    els.assistantTransportPill = document.querySelector('#assistant-transport-pill');
     els.search = document.querySelector('#search-input');
     els.applySearch = document.querySelector('#apply-search');
     els.clearSearch = document.querySelector('#clear-search');
@@ -960,11 +1087,20 @@
         }
       });
     }
+    if (els.allowExternalSearch) {
+      els.allowExternalSearch.addEventListener('change', () => {
+        state.allowExternalSearch = els.allowExternalSearch.checked;
+        update();
+      });
+    }
     if (els.runAiQuery) els.runAiQuery.addEventListener('click', () => runAiQuery(els.aiQuery.value));
     if (els.clearAiQuery) els.clearAiQuery.addEventListener('click', () => {
-      runAiQuery('');
+      state.aiQuery = '';
+      if (els.aiQuery) els.aiQuery.value = '';
+      update();
       if (els.aiQuery) els.aiQuery.focus();
     });
+    if (els.clearAiConversation) els.clearAiConversation.addEventListener('click', clearConversation);
 
     els.search.addEventListener('input', () => commitSearch(els.search.value));
     els.search.addEventListener('change', () => commitSearch(els.search.value));
@@ -994,7 +1130,7 @@
       downloadFile('c2a2_community_explorer_filtered.csv', toCsv(rows), 'text/csv;charset=utf-8');
     });
     document.querySelector('#download-json').addEventListener('click', () => {
-      const rows = getFilteredRows().rows.map(({ __index, hasEmail, manualCuration, geoGap, searchBlob, searchIndex, ...row }) => row);
+      const rows = getFilteredRows().rows.map(({ __index, hasEmail, manualCuration, geoGap, searchBlob, searchIndex, aiIndex, ...row }) => row);
       downloadFile('c2a2_community_explorer_filtered.json', JSON.stringify(rows, null, 2), 'application/json;charset=utf-8');
     });
     document.querySelector('#copy-share-link').addEventListener('click', () => copyText(window.location.href));

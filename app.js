@@ -259,12 +259,12 @@
   };
 
   const syncControls = () => {
-    const assistantDisabled = state.aiStatus === 'unavailable' || state.aiStatus === 'checking' || !state.assistantReady;
+    const externalSearchDisabled = state.aiStatus === 'unavailable' || state.aiStatus === 'checking' || !state.assistantReady;
     if (els.aiQuery) els.aiQuery.value = state.aiQuery;
     if (els.allowExternalSearch) {
       els.allowExternalSearch.checked = state.allowExternalSearch;
-      els.allowExternalSearch.disabled = assistantDisabled;
-      els.allowExternalSearch.title = assistantDisabled
+      els.allowExternalSearch.disabled = externalSearchDisabled;
+      els.allowExternalSearch.title = externalSearchDisabled
         ? (isStaticMode ? staticModeMessage : unavailableServerMessage)
         : 'Allow the assistant to extend beyond the dataset when needed.';
     }
@@ -275,8 +275,8 @@
           ? 'The LLM assistant is live. The checkbox allows it to widen beyond the dataset when needed.'
           : unavailableServerMessage;
     }
-    if (els.aiQuery) els.aiQuery.disabled = assistantDisabled;
-    if (els.runAiQuery) els.runAiQuery.disabled = assistantDisabled;
+    if (els.aiQuery) els.aiQuery.disabled = false;
+    if (els.runAiQuery) els.runAiQuery.disabled = Boolean(state.aiPending);
     els.search.value = state.search;
     els.country.value = state.country;
     els.source.value = state.source;
@@ -402,12 +402,33 @@
       update();
       return;
     }
+    if (state.aiStatus === 'unavailable' || state.aiStatus === 'checking' || !state.assistantReady) {
+      const becameReady = await refreshAssistantAvailability();
+      if (becameReady) {
+        syncControls();
+        update();
+      }
+    }
     if (state.aiStatus === 'unavailable' || !state.assistantReady) {
       state.aiResponse = null;
       state.aiStatus = 'unavailable';
       state.aiError = isStaticMode ? staticModeMessage : unavailableServerMessage;
+      addConversationMessage({
+        role: 'assistant',
+        text: state.aiError,
+        response: {
+          assistantMode: 'error',
+          answerMarkdown: state.aiError,
+          evidence: [],
+          followUpSuggestions: isStaticMode
+            ? ['Open the served app at http://127.0.0.1:4173 instead of index.html.']
+            : ['Restart `node server.js` in the LLM-enabled environment and try again.'],
+          rankedMatches: [],
+        },
+      });
       syncControls();
       update();
+      scrollConversationToBottom();
       return;
     }
 

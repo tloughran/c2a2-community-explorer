@@ -36,6 +36,7 @@
   const dataById = new Map(data.map((row) => [row.Community_ID, row]));
   const collator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true });
   const numberFmt = new Intl.NumberFormat();
+  const isStaticMode = window.location.protocol === 'file:';
 
   const typeOrder = ['Academic', 'Ideological', 'Corporate'];
   const countBy = (rows, key) => {
@@ -65,7 +66,7 @@
     aiConversation: [],
     aiPending: false,
     allowExternalSearch: false,
-    assistantTransport: window.location.protocol === 'file:' ? 'local-static' : 'server-or-local',
+    assistantTransport: isStaticMode ? 'local-static' : 'server-or-local',
     search: '',
     types: new Set(),
     subtypes: new Set(),
@@ -184,7 +185,7 @@
   const hydrateStateFromUrl = () => {
     const params = getQueryParams();
     state.aiQuery = params.get('ai') || '';
-    state.allowExternalSearch = params.get('ext') === '1';
+    state.allowExternalSearch = !isStaticMode && params.get('ext') === '1';
     state.search = params.get('q') || '';
     state.types = new Set((params.get('types') || '').split('|').filter(Boolean));
     state.subtypes = new Set((params.get('subtypes') || '').split('|').filter(Boolean));
@@ -256,7 +257,18 @@
 
   const syncControls = () => {
     if (els.aiQuery) els.aiQuery.value = state.aiQuery;
-    if (els.allowExternalSearch) els.allowExternalSearch.checked = state.allowExternalSearch;
+    if (els.allowExternalSearch) {
+      els.allowExternalSearch.checked = state.allowExternalSearch;
+      els.allowExternalSearch.disabled = isStaticMode;
+      els.allowExternalSearch.title = isStaticMode
+        ? 'Outside-the-dataset search is unavailable in local static mode.'
+        : 'Allow the assistant to extend beyond the dataset when needed.';
+    }
+    if (els.externalSearchNote) {
+      els.externalSearchNote.textContent = isStaticMode
+        ? 'Outside-the-dataset search is unavailable in local static mode. Run `node server.js` with `OPENAI_API_KEY` to enable the full assistant.'
+        : 'Full outside-the-dataset search requires the local server plus `OPENAI_API_KEY`.';
+    }
     els.search.value = state.search;
     els.country.value = state.country;
     els.source.value = state.source;
@@ -290,9 +302,28 @@
     state.aiPending = false;
     state.aiStatus = canUseAiQuery ? 'idle' : 'unavailable';
     state.aiError = canUseAiQuery ? '' : 'AI discovery is unavailable, so the explorer will stay in keyword-and-filter mode.';
-    state.assistantTransport = window.location.protocol === 'file:' ? 'local-static' : 'server-or-local';
+    state.assistantTransport = isStaticMode ? 'local-static' : 'server-or-local';
     syncControls();
     update();
+  };
+
+  const buildStaticModeFallbackResponse = (localFallback, requestedExternalSearch) => {
+    const answerLines = [];
+    if (requestedExternalSearch) {
+      answerLines.push('I could not honor the outside-the-dataset part of that request because this page is running in **local static mode**.');
+      answerLines.push('The checkbox only records permission. Actual web-backed or tool-using assistant behavior requires `node server.js` with `OPENAI_API_KEY`.');
+      answerLines.push('What follows is only the limited local dataset fallback, which may miss or misunderstand broader conversational requests.');
+    }
+    if (localFallback.answerMarkdown) answerLines.push(localFallback.answerMarkdown);
+    return {
+      ...localFallback,
+      answerMarkdown: answerLines.join('\n\n'),
+      warning: requestedExternalSearch
+        ? 'Outside-the-dataset search is unavailable in local static mode.'
+        : localFallback.warning,
+      transport: 'local-static',
+      externalSearchUnavailable: requestedExternalSearch,
+    };
   };
 
   const requestAssistantResponse = async (prompt) => {
@@ -310,11 +341,8 @@
       mode: requestPayload.mode,
       limit: 150,
     });
-    if (window.location.protocol === 'file:') {
-      return {
-        ...localFallback,
-        transport: 'local-static',
-      };
+    if (isStaticMode) {
+      return buildStaticModeFallbackResponse(localFallback, requestPayload.mode === 'database_plus_web');
     }
     try {
       const response = await fetch('/api/query', {
@@ -739,6 +767,8 @@
       els.aiQueryStatus.textContent = 'AI discovery is unavailable here, so the explorer remains fully usable with keyword search, filters, charts, and detail views.';
     } else if (state.aiPending) {
       els.aiQueryStatus.textContent = 'The assistant is assembling an answer in English and will update the explorer when the turn completes.';
+    } else if (state.aiResponse && state.aiResponse.externalSearchUnavailable) {
+      els.aiQueryStatus.textContent = 'Outside-the-dataset search was requested, but this page is still in local static fallback mode.';
     } else if (state.aiResponse && state.aiResponse.searchScope === 'database_plus_web') {
       els.aiQueryStatus.textContent = 'This turn is allowed to extend beyond the dataset when local fit is weak or when you asked for outside search.';
     } else if (state.assistantTransport === 'openai-responses') {
@@ -1041,6 +1071,7 @@
     els.clearAiQuery = document.querySelector('#clear-ai-query');
     els.clearAiConversation = document.querySelector('#clear-ai-conversation');
     els.allowExternalSearch = document.querySelector('#allow-external-search');
+    els.externalSearchNote = document.querySelector('#external-search-note');
     els.aiQueryStatus = document.querySelector('#ai-query-status');
     els.aiConversation = document.querySelector('#ai-conversation');
     els.assistantModeLabel = document.querySelector('#assistant-mode-label');

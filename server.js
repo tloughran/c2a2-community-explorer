@@ -5,11 +5,32 @@ const { URL } = require('url');
 const AIQueryCore = require('./ai-query-core.js');
 const AssistantToolkit = require('./assistant-toolkit.js');
 
+const ROOT_DIR = __dirname;
+const loadDotEnv = (filePath) => {
+  if (!fs.existsSync(filePath)) return;
+  const lines = fs.readFileSync(filePath, 'utf8').split(/\r?\n/);
+  lines.forEach((line) => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) return;
+    const normalized = trimmed.startsWith('export ') ? trimmed.slice(7).trim() : trimmed;
+    const separator = normalized.indexOf('=');
+    if (separator <= 0) return;
+    const key = normalized.slice(0, separator).trim();
+    if (!key || process.env[key]) return;
+    let value = normalized.slice(separator + 1).trim();
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith('\'') && value.endsWith('\''))) {
+      value = value.slice(1, -1);
+    }
+    process.env[key] = value;
+  });
+};
+
+loadDotEnv(path.join(ROOT_DIR, '.env'));
+
 const HOST = process.env.HOST || '127.0.0.1';
 const PORT = Number(process.env.PORT || 4173);
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-5.4';
-const ROOT_DIR = __dirname;
 const PUBLIC_FILES = new Set([
   '.html', '.css', '.js', '.json', '.md', '.ico', '.txt'
 ]);

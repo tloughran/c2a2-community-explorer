@@ -82,7 +82,18 @@ Required local server with assistant endpoint:
 node server.js
 ```
 
-The assistant is expected to run in the LLM-enabled environment:
+The server now auto-loads a repo-local `.env` file if present. Populate:
+
+- [.env](/Users/tloughr1/Downloads/Community_Inventory_improvements_ChatGPT/c2a2-community-explorer/.env)
+- or copy from [.env.example](/Users/tloughr1/Downloads/Community_Inventory_improvements_ChatGPT/c2a2-community-explorer/.env.example)
+
+Required value:
+
+```bash
+OPENAI_API_KEY=your_real_key_here
+```
+
+You can still launch with an inline env var if you prefer:
 
 ```bash
 OPENAI_API_KEY=... node server.js

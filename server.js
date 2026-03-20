@@ -243,9 +243,10 @@ const buildAgentInput = (requestPayload, useWebSearch) => {
     }
   ];
   conversation.forEach((message) => {
+    const isAssistantMessage = message.role === 'assistant';
     input.push({
-      role: message.role === 'assistant' ? 'assistant' : 'user',
-      content: [{ type: 'input_text', text: message.text }],
+      role: isAssistantMessage ? 'assistant' : 'user',
+      content: [{ type: isAssistantMessage ? 'output_text' : 'input_text', text: message.text }],
     });
   });
   input.push({
@@ -391,7 +392,16 @@ const server = http.createServer((req, res) => {
   serveFile(req, res, decodeURIComponent(url.pathname));
 });
 
-server.listen(PORT, HOST, () => {
-  console.log(`C2A2 Community Explorer server running at http://${HOST}:${PORT}`);
-  console.log(`LLM mode: ${OPENAI_API_KEY ? `enabled via ${OPENAI_MODEL}` : 'disabled (set OPENAI_API_KEY to enable)'}`);
-});
+if (require.main === module) {
+  server.listen(PORT, HOST, () => {
+    console.log(`C2A2 Community Explorer server running at http://${HOST}:${PORT}`);
+    console.log(`LLM mode: ${OPENAI_API_KEY ? `enabled via ${OPENAI_MODEL}` : 'disabled (set OPENAI_API_KEY to enable)'}`);
+  });
+}
+
+module.exports = {
+  buildAgentInput,
+  normalizeConversation,
+  loadDotEnv,
+  server,
+};

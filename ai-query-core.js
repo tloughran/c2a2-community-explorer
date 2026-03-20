@@ -10,10 +10,11 @@
   const STOPWORDS = new Set([
     'a', 'about', 'across', 'after', 'all', 'an', 'and', 'any', 'are', 'around', 'as', 'at',
     'be', 'because', 'between', 'both', 'by', 'can', 'communities', 'community', 'compare',
-    'do', 'emphasize', 'emphasizes', 'explore', 'find', 'focused', 'for', 'from', 'help',
+    'countries', 'country', 'do', 'emphasize', 'emphasizes', 'explore', 'find', 'focused', 'for', 'from', 'help',
     'how', 'i', 'in', 'into', 'is', 'it', 'its', 'like', 'me', 'more', 'of', 'on', 'or',
-    'organization', 'organizations', 'principle', 'request', 'show', 'similar', 'that', 'the',
-    'their', 'them', 'these', 'those', 'through', 'to', 'toward', 'use', 'want', 'what',
+    'located', 'many', 'organization', 'organizations', 'principle', 'request', 'show', 'similar', 'state',
+    'states', 'than', 'that', 'the', 'their', 'them', 'these', 'those', 'through', 'to', 'toward',
+    'use', 'want', 'what',
     'which', 'whose', 'with'
   ]);
 
@@ -22,7 +23,11 @@
   const COMPARE_HINTS = /\b(compare|comparison|versus|vs\b|difference between)\b/;
   const EXTERNAL_HINTS = /\b(outside the dataset|beyond the dataset|beyond c2a2|search the web|search online|web search|internet search|outside c2a2|broaden beyond the dataset|look outside the dataset|extend beyond the dataset|external sources?)\b/;
   const AUTO_EXTEND_HINTS = /\b(if nothing fits|if no local data|if no local fit|if nothing matches|if you need to go beyond)\b/;
-  const COUNT_NOISE = new Set(['count', 'counts', 'how', 'many', 'number', 'total', 'located', 'location', 'locations', 'there', 'are']);
+  const COUNT_NOISE = new Set([
+    'are', 'bigger', 'count', 'counts', 'countries', 'country', 'fewer', 'greater', 'how',
+    'larger', 'less', 'located', 'location', 'locations', 'many', 'number', 'smaller', 'state',
+    'states', 'than', 'there', 'total'
+  ]);
 
   const FIELD_DEFINITIONS = [
     { key: 'Community_Name', label: 'Community name', weight: 8 },
@@ -146,6 +151,108 @@
     'uae': 'United Arab Emirates',
   };
 
+  const COUNTRY_AREA_KM2 = {
+    Argentina: 2780400,
+    Australia: 7692024,
+    Austria: 83879,
+    Barbados: 430,
+    Belarus: 207600,
+    Belgium: 30528,
+    Botswana: 581730,
+    Brazil: 8515767,
+    Bulgaria: 110879,
+    Canada: 9984670,
+    Chile: 756102,
+    China: 9596961,
+    Colombia: 1141748,
+    'Costa Rica': 51100,
+    'Côte d\'Ivoire': 322463,
+    Cyprus: 9251,
+    'Czech Republic': 78867,
+    Denmark: 42952,
+    'Dominican Republic': 48671,
+    Egypt: 1002450,
+    Finland: 338455,
+    France: 551695,
+    Germany: 357022,
+    Ghana: 238533,
+    Greece: 131957,
+    'Hong Kong': 1104,
+    Hungary: 93028,
+    Iceland: 103000,
+    India: 3287263,
+    Indonesia: 1904569,
+    Iran: 1648195,
+    Iraq: 438317,
+    Ireland: 70273,
+    Italy: 301340,
+    Japan: 377975,
+    Kazakhstan: 2724900,
+    Kenya: 580367,
+    'Korea, Republic of': 100210,
+    'Lao People\'s Democratic Republic': 236800,
+    Latvia: 64559,
+    Lebanon: 10452,
+    Libya: 1759540,
+    Lithuania: 65300,
+    Luxembourg: 2586,
+    Malta: 316,
+    Mexico: 1964375,
+    Mongolia: 1564116,
+    Morocco: 446550,
+    Mozambique: 801590,
+    Myanmar: 676578,
+    Nepal: 147181,
+    Netherlands: 41543,
+    'New Zealand': 268838,
+    Nigeria: 923768,
+    Norway: 385207,
+    Pakistan: 881913,
+    Paraguay: 406752,
+    Peru: 1285216,
+    Philippines: 300000,
+    Poland: 312696,
+    Portugal: 92212,
+    'Puerto Rico': 9104,
+    Qatar: 11586,
+    Romania: 238397,
+    'Russian Federation': 17098246,
+    'Saudi Arabia': 2149690,
+    Singapore: 734,
+    Slovakia: 49035,
+    Slovenia: 20273,
+    Spain: 505990,
+    'Sri Lanka': 65610,
+    Sweden: 450295,
+    Switzerland: 41285,
+    'Taiwan, Province of China': 36193,
+    Thailand: 513120,
+    'Trinidad and Tobago': 5130,
+    Turkey: 783562,
+    Turkiye: 783562,
+    Uganda: 241550,
+    Ukraine: 603500,
+    'United Arab Emirates': 83600,
+    'United Kingdom': 243610,
+    'United States': 9833517,
+    Uzbekistan: 448978,
+    'Viet Nam': 331212,
+    Vietnam: 331212,
+  };
+
+  const AREA_REFERENCE_ALIASES = {
+    texas: {
+      label: 'Texas',
+      areaKm2: 695662,
+      kind: 'reference geography',
+    },
+    'state of texas': {
+      label: 'Texas',
+      areaKm2: 695662,
+      kind: 'reference geography',
+    }
+  };
+
   const collator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true });
 
   const normalizeForQuery = (value) => String(value ?? '')
@@ -188,6 +295,8 @@
     if (items.length > maxItems) visible.push(`+${items.length - maxItems} more`);
     return visible.join(', ');
   };
+
+  const formatArea = (value) => `${formatNumber(value)} km²`;
 
   const getFieldDefinition = (key) => FIELD_DEFINITIONS.find((field) => field.key === key) || {
     key,
@@ -542,6 +651,69 @@
     return lookup;
   };
 
+  const findAreaReference = (normalizedPrompt, rows) => {
+    const referenceAliases = Object.entries(AREA_REFERENCE_ALIASES)
+      .sort((a, b) => b[0].length - a[0].length);
+    for (const [alias, reference] of referenceAliases) {
+      const normalizedAlias = normalizeForQuery(alias);
+      if (containsTerm(normalizedPrompt, normalizedAlias)) {
+        return {
+          ...reference,
+          matchedTerm: normalizedAlias,
+          supported: Number.isFinite(reference.areaKm2),
+        };
+      }
+    }
+
+    const countryLookup = buildCountryLookup(rows || []);
+    const countryEntries = Array.from(countryLookup.entries())
+      .sort((a, b) => b[0].length - a[0].length);
+    for (const [normalizedCountry, canonicalCountry] of countryEntries) {
+      if (!containsTerm(normalizedPrompt, normalizedCountry)) continue;
+      const areaKm2 = COUNTRY_AREA_KM2[canonicalCountry];
+      return {
+        label: canonicalCountry,
+        areaKm2,
+        kind: 'country',
+        matchedTerm: normalizedCountry,
+        supported: Number.isFinite(areaKm2),
+      };
+    }
+    return null;
+  };
+
+  const detectAreaComparison = (prompt, rows) => {
+    const normalizedPrompt = normalizeForQuery(prompt);
+    let operator = '';
+    let operatorLabel = '';
+    if (/\b(larger|bigger|greater)\s+than\b/.test(normalizedPrompt)) {
+      operator = 'gt';
+      operatorLabel = 'larger than';
+    } else if (/\b(smaller|less)\s+than\b/.test(normalizedPrompt)) {
+      operator = 'lt';
+      operatorLabel = 'smaller than';
+    }
+    if (!operator) {
+      return {
+        hasAny: false,
+        supported: false,
+        matchedTerms: [],
+      };
+    }
+
+    const reference = findAreaReference(normalizedPrompt, rows);
+    return {
+      hasAny: true,
+      supported: Boolean(reference && reference.supported),
+      operator,
+      operatorLabel,
+      referenceLabel: reference ? reference.label : 'the referenced place',
+      referenceAreaKm2: reference ? reference.areaKm2 : null,
+      referenceKind: reference ? reference.kind : '',
+      matchedTerms: uniq([reference && reference.matchedTerm, operatorLabel].filter(Boolean).map((value) => normalizeForQuery(value))),
+    };
+  };
+
   const detectGeography = (prompt, rows) => {
     const normalizedPrompt = normalizeForQuery(prompt);
     const countryLookup = buildCountryLookup(rows || []);
@@ -590,9 +762,19 @@
     return geography.regions.some((region) => (REGION_TO_COUNTRIES[region] || []).includes(row.Country));
   };
 
+  const rowMatchesAreaComparison = (row, areaComparison) => {
+    if (!areaComparison || !areaComparison.hasAny || !areaComparison.supported) return true;
+    const countryArea = COUNTRY_AREA_KM2[row.Country];
+    if (!Number.isFinite(countryArea)) return false;
+    return areaComparison.operator === 'gt'
+      ? countryArea > areaComparison.referenceAreaKm2
+      : countryArea < areaComparison.referenceAreaKm2;
+  };
+
   const buildIntent = (prompt, rows, requestedMode) => {
     const normalizedPrompt = normalizeForQuery(prompt);
     const geography = detectGeography(prompt, rows || []);
+    const areaComparison = detectAreaComparison(prompt, rows || []);
     const interpretation = interpretPrompt(prompt);
     const wantsExternalSearch = EXTERNAL_HINTS.test(normalizedPrompt);
     const autoExtendIfNeeded = wantsExternalSearch || AUTO_EXTEND_HINTS.test(normalizedPrompt) || requestedMode === 'database_plus_web';
@@ -600,6 +782,7 @@
       const normalizedKeyword = normalizeForQuery(keyword);
       if (COUNT_NOISE.has(normalizedKeyword)) return false;
       if (geography.matchedTerms.some((term) => containsTerm(normalizedKeyword, term) || containsTerm(term, normalizedKeyword))) return false;
+      if (areaComparison.matchedTerms.some((term) => containsTerm(normalizedKeyword, term) || containsTerm(term, normalizedKeyword))) return false;
       return true;
     });
 
@@ -612,6 +795,7 @@
       type,
       interpretation,
       geography,
+      areaComparison,
       wantsExternalSearch,
       autoExtendIfNeeded,
       requestedMode: resolveQueryMode(prompt, requestedMode),
@@ -644,6 +828,20 @@
     sourceUrl: row.Source_Link || '',
   }));
 
+  const buildAreaComparisonMatches = (rows, areaComparison) => sortByName(rows).map((row) => ({
+    communityId: row.Community_ID,
+    communityName: row.Community_Name,
+    score: 1,
+    reason: `${row.Community_Name} is included because ${row.Country} is ${areaComparison.operatorLabel} ${areaComparison.referenceLabel} by total area.`,
+    evidence: [{
+      fieldKey: 'Country',
+      fieldLabel: 'Country area',
+      matchedTerms: [areaComparison.referenceLabel, row.Country],
+      snippet: `${row.Country} (${formatArea(COUNTRY_AREA_KM2[row.Country])})`,
+    }],
+    sourceUrl: row.Source_Link || '',
+  }));
+
   const buildTopBreakdown = (rows, key, maxItems) => sortEntries(Array.from(countBy(rows, key).entries()))
     .slice(0, maxItems)
     .map(([label, count]) => `${label} (${formatNumber(count)})`);
@@ -668,7 +866,78 @@
     };
   };
 
+  const answerAreaComparisonIntent = (baseRows, retrieval, intent, currentFilters) => {
+    const scopedRows = baseRows.filter((row) => rowMatchesAreaComparison(row, intent.areaComparison));
+    const unknownCountryLabels = uniq(baseRows
+      .map((row) => row.Country)
+      .filter((country) => country && !Number.isFinite(COUNTRY_AREA_KM2[country]) && country !== 'Global' && country !== 'Europe' && country !== 'Unspecified'));
+    if (!intent.areaComparison.supported) {
+      return {
+        answerMarkdown: `I could not answer that locally because this static assistant does not yet have area metadata for **${intent.areaComparison.referenceLabel}**.\n\nIf you want, I can search beyond the dataset next and bring back a sourced answer.`,
+        rankedMatches: [],
+        evidence: [],
+        suggestedFilters: currentFilters,
+        recommendedIds: [],
+        followUpSuggestions: [
+          'Search beyond the dataset for a sourced answer.',
+          'Ask the same question with a named country or region in the dataset.',
+          'Narrow the question with a subtype or organizing principle.',
+        ],
+        shouldSearchWeb: true,
+      };
+    }
+
+    const rankedMatches = retrieval.matches.length && intent.contentKeywords.length
+      ? retrieval.matches.map((match) => ({
+        ...match,
+        sourceUrl: match.sourceUrl || '',
+      }))
+      : buildAreaComparisonMatches(scopedRows, intent.areaComparison);
+    const resultRows = rankedMatches.length && intent.contentKeywords.length
+      ? rankedMatches.map((match) => scopedRows.find((row) => row.Community_ID === match.communityId)).filter(Boolean)
+      : scopedRows;
+    const qualifyingCountries = uniq(resultRows.map((row) => row.Country).filter(Boolean));
+    const topCountries = buildTopBreakdown(resultRows, 'Country', 4);
+    const topSubtypes = buildTopBreakdown(resultRows, 'Subtype', 4);
+    const answerLines = [
+      `I found **${formatNumber(resultRows.length)} communities** located in dataset countries **${intent.areaComparison.operatorLabel} ${intent.areaComparison.referenceLabel}** (${formatArea(intent.areaComparison.referenceAreaKm2)}).`,
+      `I answered this with the app's embedded country-area reference table, then counted only rows whose \`Country\` value maps to a larger national area.`,
+    ];
+    if (unknownCountryLabels.length) {
+      answerLines.push(`I excluded non-country or unresolved labels such as ${listLabels(unknownCountryLabels, 3)} because they do not map cleanly to a single country area.`);
+    }
+    if (qualifyingCountries.length) {
+      answerLines.push(`That slice covers **${formatNumber(qualifyingCountries.length)} countries** in the current dataset.`);
+    }
+    if (topCountries.length) {
+      answerLines.push(`The strongest country labels in that slice are ${listLabels(topCountries, 4)}.`);
+    }
+    if (topSubtypes.length) {
+      answerLines.push(`The most common subtypes there are ${listLabels(topSubtypes, 4)}.`);
+    }
+    answerLines.push('If you want, I can list the qualifying countries, compare that slice to a different size threshold, or search beyond the dataset.');
+
+    const evidence = buildEvidenceItems(rankedMatches, 5);
+    const suggested = buildSuggestedFilters(currentFilters, intent.geography, rankedMatches);
+    return {
+      answerMarkdown: answerLines.join('\n\n'),
+      rankedMatches,
+      evidence,
+      suggestedFilters: suggested.filters,
+      recommendedIds: suggested.recommendedIds,
+      followUpSuggestions: [
+        'List the countries that qualify for this area threshold.',
+        'Compare this slice to countries smaller than the same reference.',
+        'Search beyond the dataset for a sourced geographic answer.',
+      ],
+      shouldSearchWeb: false,
+    };
+  };
+
   const answerCountIntent = (prompt, baseRows, scopedRows, retrieval, intent, currentFilters) => {
+    if (intent.areaComparison && intent.areaComparison.hasAny) {
+      return answerAreaComparisonIntent(scopedRows, retrieval, intent, currentFilters);
+    }
     const rankedMatches = retrieval.matches.length && intent.contentKeywords.length
       ? retrieval.matches.map((match) => ({
         ...match,
@@ -754,9 +1023,15 @@
     const requestedMode = resolveQueryMode(prompt, options.mode);
     const baseRows = applyCurrentFilters(Array.isArray(rows) ? rows : [], options.currentFilters || {});
     const intent = buildIntent(prompt, baseRows, requestedMode);
-    const scopedRows = intent.geography.hasAny ? baseRows.filter((row) => rowMatchesGeography(row, intent.geography)) : baseRows;
+    let scopedRows = intent.geography.hasAny ? baseRows.filter((row) => rowMatchesGeography(row, intent.geography)) : baseRows;
+    if (intent.areaComparison && intent.areaComparison.hasAny && intent.areaComparison.supported) {
+      scopedRows = scopedRows.filter((row) => rowMatchesAreaComparison(row, intent.areaComparison));
+    }
     const retrievalRows = scopedRows.length ? scopedRows : baseRows;
-    const retrieval = runDatasetQuery(retrievalRows, prompt, { limit: Number(options.limit || 150) });
+    const retrievalPrompt = intent.contentKeywords.length
+      ? intent.contentKeywords.join(' ')
+      : intent.interpretation.phraseLabels.join(' ');
+    const retrieval = runDatasetQuery(retrievalRows, retrievalPrompt || prompt, { limit: Number(options.limit || 150) });
 
     if (!String(prompt || '').trim()) {
       return {

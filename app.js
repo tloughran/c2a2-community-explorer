@@ -36,8 +36,9 @@
   const dataById = new Map(data.map((row) => [row.Community_ID, row]));
   const collator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true });
   const numberFmt = new Intl.NumberFormat();
+  const servedAppUrl = 'http://127.0.0.1:4173';
   const isStaticMode = window.location.protocol === 'file:';
-  const staticModeMessage = 'The AI assistant runs only through the local server. Open http://127.0.0.1:4173 instead of index.html.';
+  const staticModeMessage = `The AI assistant runs only through the local server. Open ${servedAppUrl} instead of index.html.`;
   const unavailableServerMessage = 'The LLM assistant is unavailable. Start node server.js with the working OPENAI_API_KEY-backed environment.';
 
   const typeOrder = ['Academic', 'Ideological', 'Corporate'];
@@ -1359,6 +1360,10 @@
   };
 
   const init = async () => {
+    if (isStaticMode) {
+      window.location.replace(servedAppUrl);
+      return;
+    }
     setUpElements();
     hydrateStateFromUrl();
     renderStaticMeta();

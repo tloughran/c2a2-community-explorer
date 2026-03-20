@@ -730,7 +730,9 @@
         ? 'OpenAI Responses API'
         : state.assistantTransport === 'server-or-local'
           ? 'Server-aware fallback'
-          : state.assistantTransport;
+          : state.assistantTransport === 'local-static' || state.assistantTransport === 'local-only' || state.assistantTransport === 'local-fallback'
+            ? 'Local heuristic fallback'
+            : state.assistantTransport;
     }
 
     if (state.aiStatus === 'unavailable') {
@@ -739,8 +741,10 @@
       els.aiQueryStatus.textContent = 'The assistant is assembling an answer in English and will update the explorer when the turn completes.';
     } else if (state.aiResponse && state.aiResponse.searchScope === 'database_plus_web') {
       els.aiQueryStatus.textContent = 'This turn is allowed to extend beyond the dataset when local fit is weak or when you asked for outside search.';
+    } else if (state.assistantTransport === 'openai-responses') {
+      els.aiQueryStatus.textContent = 'The server-backed assistant is reasoning over the dataset with tool access and can widen beyond it when appropriate.';
     } else {
-      els.aiQueryStatus.textContent = 'The assistant searches the current dataset first. Run the local static page or the optional server-backed mode.';
+      els.aiQueryStatus.textContent = 'This is the local heuristic fallback. For the full conversational assistant, run the server with OPENAI_API_KEY.';
     }
 
     const conversation = [...state.aiConversation];
@@ -759,7 +763,7 @@
 
     if (!conversation.length) {
       els.aiConversation.innerHTML = `
-        <div class="message-empty">Ask a question in plain language. I will search the current dataset first, explain what I found, and suggest what to do next.</div>
+        <div class="message-empty">Ask a question in plain language. In full server mode, the assistant reasons over the dataset with tool access; in static mode, a lighter fallback remains available.</div>
       `;
       return;
     }

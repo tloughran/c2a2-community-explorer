@@ -3,6 +3,7 @@ const http = require('http');
 const path = require('path');
 const { URL } = require('url');
 const AIQueryCore = require('./ai-query-core.js');
+const AssistantToolkit = require('./assistant-toolkit.js');
 
 const HOST = process.env.HOST || '127.0.0.1';
 const PORT = Number(process.env.PORT || 4173);
@@ -102,42 +103,6 @@ const normalizeConversation = (conversation) => Array.isArray(conversation)
     .slice(-8)
   : [];
 
-const buildLocalContext = (localResponse) => {
-  const topMatches = localResponse.rankedMatches
-    .slice(0, 12)
-    .map((match) => {
-      const row = communityById.get(match.communityId);
-      if (!row) return null;
-      return {
-        communityId: match.communityId,
-        communityName: match.communityName,
-        score: match.score,
-        type: row.Type,
-        subtype: row.Subtype,
-        country: row.Country,
-        sourceUrl: row.Source_Link,
-        reason: match.reason,
-        evidence: match.evidence,
-        narrative: row.Narrative_Description,
-        problem: row.Problem_Statement,
-        resource: row.Resource_Statement,
-        solution: row.Solution_Statement,
-      };
-    })
-    .filter(Boolean);
-
-  return {
-    assistantMode: localResponse.assistantMode,
-    answerMarkdown: localResponse.answerMarkdown,
-    suggestedFilters: localResponse.suggestedFilters,
-    recommendedIds: localResponse.recommendedIds,
-    followUpSuggestions: localResponse.followUpSuggestions,
-    shouldSearchWeb: localResponse.shouldSearchWeb,
-    meta: localResponse.meta,
-    topMatches,
-  };
-};
-
 const extractResponseText = (payload) => {
   if (typeof payload.output_text === 'string' && payload.output_text.trim()) {
     return payload.output_text.trim();
@@ -150,6 +115,20 @@ const extractResponseText = (payload) => {
     }
   }
   return '';
+};
+
+const extractFunctionCalls = (payload) => {
+  const output = Array.isArray(payload.output) ? payload.output : [];
+  return output.filter((item) => item && item.type === 'function_call' && item.call_id && item.name);
+};
+
+const parseJsonArguments = (value) => {
+  if (!value) return {};
+  try {
+    return JSON.parse(value);
+  } catch (error) {
+    return {};
+  }
 };
 
 const buildEvidenceFromIds = (ids) => ids
@@ -170,51 +149,136 @@ const buildEvidenceFromIds = (ids) => ids
     }],
   }));
 
-const callOpenAI = async (requestPayload, localResponse) => {
-  if (!OPENAI_API_KEY) {
-    return {
-      ...localResponse,
-      assistantMode: 'local-dataset',
-      transport: 'local-only',
-    };
-  }
+const buildFallbackMatch = (communityId, index) => {
+  const row = communityById.get(communityId);
+  if (!row) return null;
+  const geography = AssistantToolkit.COUNTRY_METADATA[row.Country] || null;
+  return {
+    communityId: row.Community_ID,
+    communityName: row.Community_Name,
+    score: Math.max(1, 100 - index),
+    reason: geography && geography.capital
+      ? `${row.Community_Name} is included in the assistant-selected dataset slice for ${row.Country} (${geography.capital}).`
+      : `${row.Community_Name} is included in the assistant-selected dataset slice for this turn.`,
+    evidence: [{
+      fieldKey: 'Narrative_Description',
+      fieldLabel: 'Organizing principle',
+      matchedTerms: [row.Country].filter(Boolean),
+      snippet: row.Narrative_Description || row.Country || 'Dataset row',
+    }],
+    sourceUrl: row.Source_Link || '',
+  };
+};
 
-  const useWebSearch = requestPayload.mode === 'database_plus_web'
-    && (localResponse.shouldSearchWeb || AIQueryCore.buildIntent(requestPayload.prompt, communityRows, requestPayload.mode).wantsExternalSearch);
+const buildRecommendedMatches = (recommendedIds, localResponse) => {
+  const localMatchMap = new Map((localResponse.rankedMatches || []).map((match) => [match.communityId, match]));
+  return recommendedIds
+    .map((communityId, index) => localMatchMap.get(communityId) || buildFallbackMatch(communityId, index))
+    .filter(Boolean);
+};
 
-  const conversation = normalizeConversation(requestPayload.conversation);
-  const localContext = buildLocalContext(localResponse);
-  const inputText = [
-    'You are the C2A2 Community Explorer assistant.',
-    'Answer in plain English.',
-    'Use the local dataset first.',
-    'Only use web search when the request explicitly asks to extend beyond the dataset or local fit is weak.',
-    'Do not invent dataset rows or IDs.',
-    '',
-    `Current prompt: ${requestPayload.prompt}`,
-    '',
-    `Current filters: ${JSON.stringify(requestPayload.current_filters || {}, null, 2)}`,
-    '',
-    `Recent conversation: ${JSON.stringify(conversation, null, 2)}`,
-    '',
-    `Local retrieval context: ${JSON.stringify(localContext, null, 2)}`,
-    '',
-    'Return JSON only.',
-    'recommendedIds must be chosen from the local dataset topMatches only.',
-    'If you use external web search, summarize those findings in externalFindings and keep them separate from recommendedIds.',
-  ].join('\n');
-
+const requestResponsesApi = async (payload) => {
   const response = await fetch('https://api.openai.com/v1/responses', {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${OPENAI_API_KEY}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`OpenAI request failed (${response.status}): ${errorText}`);
+  }
+  return response.json();
+};
+
+const buildAgentInput = (requestPayload, useWebSearch) => {
+  const conversation = normalizeConversation(requestPayload.conversation);
+  const filtersText = JSON.stringify(requestPayload.current_filters || {}, null, 2);
+  const modeInstruction = useWebSearch
+    ? 'You may use web search only after using the dataset tools first and only when the user explicitly asks to go beyond the dataset or the dataset tools are insufficient.'
+    : 'Web search is not available for this turn, so you must answer from the dataset tools only and say clearly when the local dataset is insufficient.';
+  const input = [
+    {
+      role: 'system',
+      content: [{
+        type: 'input_text',
+        text: [
+          'You are the C2A2 Community Explorer assistant.',
+          'Be genuinely conversational, analytical, and helpful.',
+          'Use the dataset tools first for every turn.',
+          'Think of the tools as your way to inspect the dataset directly rather than relying on a canned local answer.',
+          'Use `search_dataset` for topical discovery, `count_dataset` for totals and grouped counts, `inspect_geographies` for country/capital/area reasoning, and `get_communities` for richer record detail.',
+          modeInstruction,
+          'Do not invent communities, IDs, countries, or claims about the dataset.',
+          'When you rely on outside-the-dataset information, keep it explicitly separated from dataset-grounded findings.',
+          'Always return JSON that matches the provided schema.',
+          'recommendedIds should be a dataset-backed slice that supports your answer. Prefer up to 25 IDs. It is acceptable to return an empty array only when no local slice genuinely supports the answer.',
+          '',
+          `Current explorer filters: ${filtersText}`,
+        ].join('\n')
+      }]
+    }
+  ];
+  conversation.forEach((message) => {
+    input.push({
+      role: message.role === 'assistant' ? 'assistant' : 'user',
+      content: [{ type: 'input_text', text: message.text }],
+    });
+  });
+  input.push({
+    role: 'user',
+    content: [{ type: 'input_text', text: requestPayload.prompt || '' }],
+  });
+  return input;
+};
+
+const callOpenAI = async (requestPayload, localResponse) => {
+  if (!OPENAI_API_KEY) {
+    return {
+      ...localResponse,
+      assistantMode: 'local-dataset',
+      transport: 'local-only',
+      warning: 'Full conversational assistant mode requires OPENAI_API_KEY; this turn used the local heuristic fallback.',
+    };
+  }
+
+  const useWebSearch = requestPayload.mode === 'database_plus_web';
+  const tools = AssistantToolkit.TOOL_SCHEMAS.concat(useWebSearch ? [{ type: 'web_search_preview' }] : []);
+  let payload = await requestResponsesApi({
+    model: OPENAI_MODEL,
+    reasoning: { effort: 'medium' },
+    tools,
+    input: buildAgentInput(requestPayload, useWebSearch),
+    text: {
+      format: {
+        type: 'json_schema',
+        name: 'community_assistant_response',
+        strict: true,
+        schema: llmResponseSchema,
+      }
+    }
+  });
+
+  for (let step = 0; step < 6; step += 1) {
+    const functionCalls = extractFunctionCalls(payload);
+    if (!functionCalls.length) break;
+    const outputs = functionCalls.map((call) => {
+      const args = parseJsonArguments(call.arguments);
+      const result = AssistantToolkit.executeToolCall(communityRows, requestPayload.current_filters || {}, call.name, args);
+      return {
+        type: 'function_call_output',
+        call_id: call.call_id,
+        output: JSON.stringify(result),
+      };
+    });
+    payload = await requestResponsesApi({
       model: OPENAI_MODEL,
-      reasoning: { effort: 'medium' },
-      tools: useWebSearch ? [{ type: 'web_search_preview' }] : [],
-      input: inputText,
+      previous_response_id: payload.id,
+      tools,
+      input: outputs,
       text: {
         format: {
           type: 'json_schema',
@@ -223,37 +287,29 @@ const callOpenAI = async (requestPayload, localResponse) => {
           schema: llmResponseSchema,
         }
       }
-    }),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`OpenAI request failed (${response.status}): ${errorText}`);
+    });
   }
 
-  const payload = await response.json();
   const rawText = extractResponseText(payload);
   const parsed = JSON.parse(rawText);
   const recommendedIds = Array.isArray(parsed.recommendedIds)
     ? parsed.recommendedIds.filter((communityId) => communityById.has(communityId))
     : [];
-  const rankedMatches = recommendedIds
-    .map((communityId) => localResponse.rankedMatches.find((match) => match.communityId === communityId))
-    .filter(Boolean);
+  const rankedMatches = buildRecommendedMatches(recommendedIds, localResponse);
 
   return {
     ...localResponse,
-    assistantMode: useWebSearch ? 'server-llm-dataset-plus-web' : 'server-llm-dataset',
+    assistantMode: useWebSearch ? 'server-llm-agent-plus-web' : 'server-llm-agent',
     transport: 'openai-responses',
     searchScope: useWebSearch ? 'database_plus_web' : 'database_only',
     answerMarkdown: parsed.answerMarkdown || localResponse.answerMarkdown,
     followUpSuggestions: Array.isArray(parsed.followUpSuggestions) && parsed.followUpSuggestions.length
       ? parsed.followUpSuggestions
       : localResponse.followUpSuggestions,
-    recommendedIds: recommendedIds.length ? recommendedIds : localResponse.recommendedIds,
-    rankedMatches: rankedMatches.length ? rankedMatches : localResponse.rankedMatches,
+    recommendedIds,
+    rankedMatches,
     externalFindings: Array.isArray(parsed.externalFindings) ? parsed.externalFindings : [],
-    evidence: localResponse.evidence.length ? localResponse.evidence : buildEvidenceFromIds(recommendedIds),
+    evidence: recommendedIds.length ? buildEvidenceFromIds(recommendedIds) : localResponse.evidence,
   };
 };
 

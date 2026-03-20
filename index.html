@@ -36,7 +36,7 @@
         </div>
         <div class="hero-meta ai-meta">
           <span class="meta-pill">Dataset grounded</span>
-          <span class="meta-pill" id="assistant-transport-pill">Static-friendly fallback</span>
+          <span class="meta-pill" id="assistant-transport-pill">Local heuristic fallback</span>
         </div>
       </div>
       <div class="ai-query-layout">
@@ -45,14 +45,14 @@
             <div class="conversation-toolbar">
               <div class="conversation-status">
                 <strong id="assistant-mode-label">Assistant ready</strong>
-                <div class="subtle" id="ai-query-status">The assistant searches the current dataset first. Run the local static page or the optional server-backed mode.</div>
+                <div class="subtle" id="ai-query-status">The full conversational assistant runs through the local server with `OPENAI_API_KEY`. Static mode remains available as a limited heuristic fallback.</div>
               </div>
               <button class="action-button" id="clear-ai-conversation" type="button">Clear conversation</button>
             </div>
             <div class="conversation-scroll" id="ai-conversation">
               <article class="conversation-message assistant">
                 <div class="message-meta">Assistant</div>
-                <div class="message-body">Ask a question in plain language. I will search the current dataset first, explain what I found, and suggest what to do next.</div>
+                <div class="message-body">Ask a question in plain language. In full server mode, I will reason over the dataset conversationally, use tools to inspect it, and go beyond it only when appropriate. Static mode remains a lighter fallback.</div>
               </article>
             </div>
           </div>

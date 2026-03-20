@@ -37,13 +37,18 @@ This project turns the rebuilt community directory into a static, interactive we
 
 ## AI discovery layer
 
-This branch now supports two assistant modes:
+This branch now supports two clearly different assistant modes:
 
-- Static-only mode: open `index.html` directly and the assistant uses the local dataset planner in the browser.
-- Server-assisted mode: run `node server.js` and the same UI can call `/api/query`.
-- If `OPENAI_API_KEY` is set, the server can upgrade local answers to an OpenAI-backed assistant using the Responses API.
+- Static-only mode: open `index.html` directly and the assistant uses a limited local heuristic fallback in the browser.
+- Server-assisted mode: run `node server.js` and the UI can call `/api/query`.
+- Full conversational mode: set `OPENAI_API_KEY` and the server upgrades into a tool-using OpenAI-backed assistant.
+- In full conversational mode, the model does not rely on one canned local answer. It can inspect the dataset through server-side tools for:
+  - semantic dataset search
+  - counts and grouped breakdowns
+  - country/capital/area inspection
+  - richer community-record lookup by ID
 - The assistant still searches the existing dataset first.
-- It only widens beyond the dataset when local fit is weak or the user explicitly asks.
+- It only widens beyond the dataset when local evidence is insufficient and outside search is allowed.
 - Existing filters, visualizations, URL state, downloads, and detail rendering remain intact.
 - Keyword search remains available as a fallback or second-pass exact-text filter.
 

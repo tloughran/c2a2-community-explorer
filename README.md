@@ -131,7 +131,7 @@ The Streamlit version:
 - reads the same `community_data.json`
 - reproduces the core explorer flow in Python
 - is read-only by design for public deployment stability
-- can enable an LLM assistant through Streamlit secrets
+- currently presents the Assistant tab as an under-construction public placeholder
 
 See [`docs/streamlit-migration.md`](docs/streamlit-migration.md) and [`.streamlit/secrets.toml.example`](/Users/tloughr1/Downloads/Community_Inventory_improvements_ChatGPT/c2a2-community-explorer/.streamlit/secrets.toml.example).
 

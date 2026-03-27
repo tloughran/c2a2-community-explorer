@@ -7,7 +7,7 @@ For a public prototype, the right first move is not to port the entire Node app 
 1. Use `community_data.json` as the source of truth.
 2. Rebuild the explorer UI directly in Streamlit.
 3. Keep public deployment read-only.
-4. Add an optional OpenAI-backed assistant using Streamlit secrets.
+4. Present the Assistant tab as under construction until the transport path is reliable.
 5. Leave dataset writes and external search for a later authenticated admin path.
 
 That gives you something demoable quickly without exposing the more fragile server-only mutation workflow on a public endpoint.
@@ -38,7 +38,7 @@ Capabilities:
 - current-slice table
 - basic charts
 - detail view
-- read-only dataset assistant over the filtered slice
+- deliberate under-construction assistant placeholder for public demo clarity
 
 ### Phase 2: Private admin workflow
 
@@ -65,7 +65,7 @@ Admin-only features later:
 - metrics and simple charts
 - detail view with provenance
 - CSV export
-- optional OpenAI-backed assistant using the filtered dataset slice
+- an under-construction Assistant tab that avoids exposing a flaky public AI path
 
 ## What to do next if you want parity later
 

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 from pathlib import Path
 from typing import Iterable
@@ -9,19 +8,9 @@ from typing import Iterable
 import pandas as pd
 import streamlit as st
 
-try:
-    from openai import OpenAI
-    from openai import APIConnectionError, APIStatusError, APITimeoutError
-except ImportError:  # pragma: no cover - import is runtime-dependent in deployment
-    OpenAI = None
-    APIConnectionError = None
-    APIStatusError = None
-    APITimeoutError = None
-
 
 APP_DIR = Path(__file__).resolve().parent
 DATA_PATH = APP_DIR / "community_data.json"
-DEFAULT_MODEL = "gpt-5.4"
 SEARCH_FIELDS = [
     "Community_Name",
     "Type",
@@ -127,95 +116,6 @@ def compact_context(frame: pd.DataFrame, limit: int = 18) -> str:
     return "\n\n---\n\n".join(lines)
 
 
-def resolve_openai_credentials() -> tuple[str, str]:
-    api_key = ""
-    model = DEFAULT_MODEL
-    if "OPENAI_API_KEY" in st.secrets:
-        api_key = st.secrets["OPENAI_API_KEY"]
-    elif os.getenv("OPENAI_API_KEY"):
-        api_key = os.getenv("OPENAI_API_KEY", "")
-    if "OPENAI_MODEL" in st.secrets:
-        model = st.secrets["OPENAI_MODEL"]
-    elif os.getenv("OPENAI_MODEL"):
-        model = os.getenv("OPENAI_MODEL", DEFAULT_MODEL)
-    return str(api_key).strip(), str(model).strip() or DEFAULT_MODEL
-
-
-def explain_openai_error(error: Exception, model: str) -> str:
-    if APIConnectionError and isinstance(error, APIConnectionError):
-        return (
-            "Connection failure while trying to reach the OpenAI API from Streamlit Cloud. "
-            "The deployment is live, but this request could not connect outward to OpenAI. "
-            f"Current model setting: `{model}`."
-        )
-    if APITimeoutError and isinstance(error, APITimeoutError):
-        return (
-            "The OpenAI request timed out from the Streamlit deployment. "
-            "Try again, or switch to a lighter model such as `gpt-4.1-mini` for the public demo."
-        )
-    if APIStatusError and isinstance(error, APIStatusError):
-        status_code = getattr(error, "status_code", "unknown")
-        body = getattr(error, "body", None)
-        detail = body if isinstance(body, str) else json.dumps(body, ensure_ascii=True) if body else str(error)
-        return (
-            f"OpenAI returned an API error ({status_code}). "
-            f"Current model setting: `{model}`. Details: {detail}"
-        )
-    return f"Unexpected assistant error: {error.__class__.__name__}: {error}"
-
-
-def ask_dataset_assistant(question: str, filtered_frame: pd.DataFrame) -> dict[str, object]:
-    api_key, model = resolve_openai_credentials()
-    if not api_key or OpenAI is None:
-        raise RuntimeError("OPENAI_API_KEY is not configured for this Streamlit app.")
-
-    candidate_rows = rank_rows_for_question(filtered_frame, question)
-    context = compact_context(candidate_rows)
-    client = OpenAI(api_key=api_key, timeout=30.0, max_retries=1)
-    try:
-        response = client.responses.create(
-            model=model,
-            input=[
-                {
-                    "role": "system",
-                    "content": [
-                        {
-                            "type": "input_text",
-                            "text": (
-                                "You are the public C2A2 Community Explorer demo assistant. "
-                                "Answer conversationally in English using the supplied dataset rows only. "
-                                "Do not claim to write to the dataset from Streamlit. "
-                                "If the supplied slice is insufficient, say so plainly. "
-                                "Cite community IDs inline when you make specific claims."
-                            ),
-                        }
-                    ],
-                },
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "input_text",
-                            "text": (
-                                f"Current filtered slice size: {len(filtered_frame)} communities.\n"
-                                f"Candidate rows selected for this question:\n\n{context}\n\n"
-                                f"Question: {question}"
-                            ),
-                        }
-                    ],
-                },
-            ],
-        )
-    except Exception as error:
-        raise RuntimeError(explain_openai_error(error, model)) from error
-    answer = getattr(response, "output_text", "") or ""
-    return {
-        "answer": answer.strip(),
-        "candidate_rows": candidate_rows.drop(columns=["search_blob"], errors="ignore"),
-        "model": model,
-    }
-
-
 def render_metrics(frame: pd.DataFrame) -> None:
     type_count = frame["Type"].nunique() if not frame.empty else 0
     subtype_count = frame["Subtype"].nunique() if not frame.empty else 0
@@ -292,6 +192,79 @@ def render_detail(frame: pd.DataFrame) -> None:
     st.dataframe(meta_frame, use_container_width=True, hide_index=True)
 
 
+def render_under_construction_panel() -> None:
+    st.markdown(
+        """
+        <style>
+        .construction-card {
+            background: linear-gradient(135deg, #0f0f0f 0%, #1b1b1b 100%);
+            border: 4px solid #f7d046;
+            border-radius: 18px;
+            padding: 1.5rem;
+            box-shadow: 0 18px 40px rgba(0, 0, 0, 0.28);
+            color: #f6f1d5;
+        }
+        .construction-tape {
+            margin: 0 0 1rem 0;
+            padding: 0.55rem 0.8rem;
+            border-radius: 999px;
+            background: repeating-linear-gradient(
+                -45deg,
+                #f7d046,
+                #f7d046 16px,
+                #141414 16px,
+                #141414 32px
+            );
+            color: #141414;
+            font-weight: 800;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            display: inline-block;
+        }
+        .construction-card h3 {
+            color: #ffe16e;
+            margin-bottom: 0.5rem;
+        }
+        .construction-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 0.9rem;
+            margin-top: 1rem;
+        }
+        .construction-note {
+            background: rgba(247, 208, 70, 0.1);
+            border: 1px solid rgba(247, 208, 70, 0.38);
+            border-radius: 14px;
+            padding: 0.9rem 1rem;
+        }
+        </style>
+        <div class="construction-card">
+            <div class="construction-tape">Assistant Under Construction</div>
+            <h3>Public AI assistant is temporarily offline</h3>
+            <p>
+                The public Streamlit prototype is intentionally showing the explorer only.
+                We are still hardening the LLM pathway for reliable public deployment.
+            </p>
+            <div class="construction-grid">
+                <div class="construction-note">
+                    <strong>What works now</strong><br/>
+                    Filters, charts, detail views, and CSV export over the full C2A2 dataset.
+                </div>
+                <div class="construction-note">
+                    <strong>What returns later</strong><br/>
+                    Natural-language querying, source-grounded explanations, and guided comparison.
+                </div>
+                <div class="construction-note">
+                    <strong>Current status</strong><br/>
+                    Demo-safe public shell first, assistant reliability work next.
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def main() -> None:
     st.set_page_config(
         page_title="C2A2 Community Explorer",
@@ -347,56 +320,8 @@ def main() -> None:
 
     with assistant_tab:
         st.subheader("Dataset assistant")
-        api_key, model = resolve_openai_credentials()
-        if not api_key:
-            st.warning(
-                "No `OPENAI_API_KEY` is configured for this Streamlit deployment yet. "
-                "The explorer still works, but the chat assistant is disabled."
-            )
-        else:
-            st.caption(f"Using model: `{model}`")
-            st.caption("If the assistant still fails in Streamlit Cloud, try switching the secret `OPENAI_MODEL` to `gpt-4.1-mini` as a lower-risk demo fallback.")
-
-        if "streamlit_messages" not in st.session_state:
-            st.session_state.streamlit_messages = [
-                {
-                    "role": "assistant",
-                    "content": (
-                        "Ask about the current filtered slice in plain English. "
-                        "This public Streamlit demo is read-only and answers from the local dataset."
-                    ),
-                }
-            ]
-
-        for message in st.session_state.streamlit_messages:
-            with st.chat_message(message["role"]):
-                st.markdown(message["content"])
-
-        prompt = st.chat_input(
-            "Ask about the current filtered slice",
-            disabled=not bool(api_key),
-        )
-        if prompt:
-            st.session_state.streamlit_messages.append({"role": "user", "content": prompt})
-            with st.chat_message("user"):
-                st.markdown(prompt)
-
-            with st.chat_message("assistant"):
-                with st.spinner("Reviewing the filtered dataset..."):
-                    try:
-                        result = ask_dataset_assistant(prompt, filtered)
-                        answer = result["answer"] or "I couldn't produce an answer from the current slice."
-                        st.markdown(answer)
-                        st.markdown("**Rows consulted for this answer**")
-                        consulted = result["candidate_rows"][
-                            ["Community_ID", "Community_Name", "Type", "Subtype", "Country"]
-                        ]
-                        st.dataframe(consulted, use_container_width=True, hide_index=True)
-                    except Exception as error:  # pragma: no cover - depends on runtime secrets/network
-                        answer = f"Assistant error: {error}"
-                        st.error(answer)
-
-            st.session_state.streamlit_messages.append({"role": "assistant", "content": answer})
+        render_under_construction_panel()
+        st.info("For now, use the Explorer tab for the public demo.")
 
     with notes_tab:
         st.subheader("How this Streamlit prototype relates to the Node app")
@@ -406,6 +331,7 @@ def main() -> None:
             - This Streamlit app is the quick public-demo path.
             - It reads the same canonical dataset file: `community_data.json`.
             - It intentionally stays read-only for public deployment stability.
+            - The public assistant tab is currently presented as under construction rather than exposed in a flaky state.
             - If you want admin write actions later, add a separate authenticated admin surface rather than exposing dataset writes publicly.
             """
         )

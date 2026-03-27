@@ -293,7 +293,7 @@ def main() -> None:
 
     filtered = apply_filters(rows, search, types, subtypes, countries, sources)
 
-    explorer_tab, assistant_tab, notes_tab = st.tabs(["Explorer", "Assistant", "Deployment notes"])
+    explorer_tab, assistant_tab, notes_tab = st.tabs(["Explorer", "Assistant", "About C2A2"])
 
     with explorer_tab:
         render_metrics(filtered)
@@ -324,24 +324,48 @@ def main() -> None:
         st.info("For now, use the Explorer tab for the public demo.")
 
     with notes_tab:
-        st.subheader("How this Streamlit prototype relates to the Node app")
+        st.subheader("C2A2 Community Explorer prototype")
         st.markdown(
             """
-            - The existing Node/HTML app remains the richer engineering version.
-            - This Streamlit app is the quick public-demo path.
-            - It reads the same canonical dataset file: `community_data.json`.
-            - It intentionally stays read-only for public deployment stability.
-            - The public assistant tab is currently presented as under construction rather than exposed in a flaky state.
-            - If you want admin write actions later, add a separate authenticated admin surface rather than exposing dataset writes publicly.
+            This public app is a **C2A2 Community Explorer prototype**, part of the emerging **C2A2 platform**.
+
+            C2A2 takes a **Community-Context-for-AI-Alignment** approach. The idea is that communities already carry
+            rich purposes, practices, tensions, histories, and ways of learning. A useful AI-alignment platform should
+            help communities make those forms of life more intelligible to themselves and to one another, rather than
+            treating alignment only as an abstract technical problem.
             """
         )
-        st.subheader("Streamlit deployment checklist")
+
+        st.subheader("What the broader platform is meant to support")
         st.markdown(
             """
-            1. Deploy this repo with `streamlit_app.py` as the entrypoint.
-            2. Add `OPENAI_API_KEY` as a Streamlit secret if you want the assistant enabled.
-            3. Keep the demo public and read-only at first.
-            4. Add admin authentication before enabling any dataset mutation.
+            1. Explore a variety of pre-loaded, user-loaded, and/or C2A2-member communities.
+            2. Articulate purpose, status, and curricula for entry, growth, and participation within any interested community.
+            3. Compare community goals and practical projects in terms of articulated and mappable **Problem-Resource-Solution triplets**, as demonstrated in this explorer, to foster collaboration or contrast across approaches.
+            4. Grow a community's goals and resources, where desired, through guidance from and consultation with other communities.
+            5. Dialogue with other communities to stabilize an approach to shared goals and, where appropriate, expand those goals.
+            6. Eventually, study rich dialectical engagement among mature communities of the sort Alasdair MacIntyre described as characteristic of the rationality of tradition and craft.
+            """
+        )
+
+        st.subheader("What this prototype shows now")
+        st.markdown(
+            """
+            This public prototype focuses on one slice of that larger vision:
+
+            - a community explorer over a curated C2A2 dataset
+            - filters across type, subtype, geography, and source
+            - detail views for each community's organizing principle
+            - Problem-Resource-Solution framing for comparison across communities
+
+            The Assistant tab is currently presented as **under construction** while the public AI pathway is being hardened.
+            """
+        )
+
+        st.subheader("Contact")
+        st.markdown(
+            """
+            Contact [Thomas Loughran](https://linkedin.com/in/tloughran) on LinkedIn.
             """
         )
 

@@ -133,4 +133,3 @@ The standalone single-file snapshot remains available for quick sharing, but it 
 ## Repository workflow prepared here
 
 This project bundle is ready to be committed to Git and imported into GitHub for use with Codex-connected workflows under the C2A2 Community Explorer name. A companion feature branch scaffold can be created for the future AI query layer.
-# c2a2-community-explorer

@@ -11,8 +11,12 @@ import streamlit as st
 
 try:
     from openai import OpenAI
+    from openai import APIConnectionError, APIStatusError, APITimeoutError
 except ImportError:  # pragma: no cover - import is runtime-dependent in deployment
     OpenAI = None
+    APIConnectionError = None
+    APIStatusError = None
+    APITimeoutError = None
 
 
 APP_DIR = Path(__file__).resolve().parent
@@ -134,7 +138,30 @@ def resolve_openai_credentials() -> tuple[str, str]:
         model = st.secrets["OPENAI_MODEL"]
     elif os.getenv("OPENAI_MODEL"):
         model = os.getenv("OPENAI_MODEL", DEFAULT_MODEL)
-    return api_key, model
+    return str(api_key).strip(), str(model).strip() or DEFAULT_MODEL
+
+
+def explain_openai_error(error: Exception, model: str) -> str:
+    if APIConnectionError and isinstance(error, APIConnectionError):
+        return (
+            "Connection failure while trying to reach the OpenAI API from Streamlit Cloud. "
+            "The deployment is live, but this request could not connect outward to OpenAI. "
+            f"Current model setting: `{model}`."
+        )
+    if APITimeoutError and isinstance(error, APITimeoutError):
+        return (
+            "The OpenAI request timed out from the Streamlit deployment. "
+            "Try again, or switch to a lighter model such as `gpt-4.1-mini` for the public demo."
+        )
+    if APIStatusError and isinstance(error, APIStatusError):
+        status_code = getattr(error, "status_code", "unknown")
+        body = getattr(error, "body", None)
+        detail = body if isinstance(body, str) else json.dumps(body, ensure_ascii=True) if body else str(error)
+        return (
+            f"OpenAI returned an API error ({status_code}). "
+            f"Current model setting: `{model}`. Details: {detail}"
+        )
+    return f"Unexpected assistant error: {error.__class__.__name__}: {error}"
 
 
 def ask_dataset_assistant(question: str, filtered_frame: pd.DataFrame) -> dict[str, object]:
@@ -144,40 +171,43 @@ def ask_dataset_assistant(question: str, filtered_frame: pd.DataFrame) -> dict[s
 
     candidate_rows = rank_rows_for_question(filtered_frame, question)
     context = compact_context(candidate_rows)
-    client = OpenAI(api_key=api_key)
-    response = client.responses.create(
-        model=model,
-        input=[
-            {
-                "role": "system",
-                "content": [
-                    {
-                        "type": "input_text",
-                        "text": (
-                            "You are the public C2A2 Community Explorer demo assistant. "
-                            "Answer conversationally in English using the supplied dataset rows only. "
-                            "Do not claim to write to the dataset from Streamlit. "
-                            "If the supplied slice is insufficient, say so plainly. "
-                            "Cite community IDs inline when you make specific claims."
-                        ),
-                    }
-                ],
-            },
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "input_text",
-                        "text": (
-                            f"Current filtered slice size: {len(filtered_frame)} communities.\n"
-                            f"Candidate rows selected for this question:\n\n{context}\n\n"
-                            f"Question: {question}"
-                        ),
-                    }
-                ],
-            },
-        ],
-    )
+    client = OpenAI(api_key=api_key, timeout=30.0, max_retries=1)
+    try:
+        response = client.responses.create(
+            model=model,
+            input=[
+                {
+                    "role": "system",
+                    "content": [
+                        {
+                            "type": "input_text",
+                            "text": (
+                                "You are the public C2A2 Community Explorer demo assistant. "
+                                "Answer conversationally in English using the supplied dataset rows only. "
+                                "Do not claim to write to the dataset from Streamlit. "
+                                "If the supplied slice is insufficient, say so plainly. "
+                                "Cite community IDs inline when you make specific claims."
+                            ),
+                        }
+                    ],
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "input_text",
+                            "text": (
+                                f"Current filtered slice size: {len(filtered_frame)} communities.\n"
+                                f"Candidate rows selected for this question:\n\n{context}\n\n"
+                                f"Question: {question}"
+                            ),
+                        }
+                    ],
+                },
+            ],
+        )
+    except Exception as error:
+        raise RuntimeError(explain_openai_error(error, model)) from error
     answer = getattr(response, "output_text", "") or ""
     return {
         "answer": answer.strip(),
@@ -325,6 +355,7 @@ def main() -> None:
             )
         else:
             st.caption(f"Using model: `{model}`")
+            st.caption("If the assistant still fails in Streamlit Cloud, try switching the secret `OPENAI_MODEL` to `gpt-4.1-mini` as a lower-risk demo fallback.")
 
         if "streamlit_messages" not in st.session_state:
             st.session_state.streamlit_messages = [

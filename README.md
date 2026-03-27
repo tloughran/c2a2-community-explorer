@@ -15,6 +15,8 @@ This project turns the rebuilt community directory into a static, interactive we
 - `app.js` - filtering, visualization, pagination, detail panel, and prompt-generation logic
 - `server.js` - required local server for the assistant; serves the app and routes `/api/query` to the OpenAI-backed assistant
 - `dataset-store.js` - canonical dataset read/write store used by the server assistant for full record creation
+- `streamlit_app.py` - public-facing Streamlit prototype over the same dataset
+- `requirements.txt` - Python dependencies for Streamlit deployment
 - `package.json` - lightweight scripts for local server and smoke tests
 - `community_record_schema.json` - a JSON Schema starter for future ingestion and validation
 - `c2a2_community_explorer.html` - standalone single-file version for quick opening and sharing
@@ -23,6 +25,7 @@ This project turns the rebuilt community directory into a static, interactive we
 - `test_assistant_query_smoke.js` - Node smoke test for the shared dataset reasoning helpers that still back some server-side tool behavior
 - `test_dataset_store_smoke.js` - Node smoke test for canonical dataset writes and duplicate guards
 - `docs/ai-query-architecture.md` - design note for the staged AI discovery layer and future webpage grounding
+- `docs/streamlit-migration.md` - recommended path for a public Streamlit deployment
 
 ## What the interface currently does
 
@@ -114,6 +117,23 @@ You can still launch with an inline env var if you prefer:
 ```bash
 OPENAI_API_KEY=... node server.js
 ```
+
+## Streamlit prototype
+
+This repo now also includes a quick public-demo path for Streamlit:
+
+```bash
+streamlit run streamlit_app.py
+```
+
+The Streamlit version:
+
+- reads the same `community_data.json`
+- reproduces the core explorer flow in Python
+- is read-only by design for public deployment stability
+- can enable an LLM assistant through Streamlit secrets
+
+See [`docs/streamlit-migration.md`](docs/streamlit-migration.md) and [`.streamlit/secrets.toml.example`](/Users/tloughr1/Downloads/Community_Inventory_improvements_ChatGPT/c2a2-community-explorer/.streamlit/secrets.toml.example).
 
 ## Recommended next steps for the next iteration
 

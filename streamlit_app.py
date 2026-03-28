@@ -1,20 +1,19 @@
 from __future__ import annotations
 
-import json
 import re
-from pathlib import Path
 from typing import Iterable
 
 import pandas as pd
 import streamlit as st
 
+import platform_store as store
 
-APP_DIR = Path(__file__).resolve().parent
-DATA_PATH = APP_DIR / "community_data.json"
+
 SEARCH_FIELDS = [
     "Community_Name",
     "Type",
     "Subtype",
+    "SSubtype",
     "Country",
     "Source_Directory",
     "Verified_Link_Host",
@@ -37,8 +36,8 @@ def tokenize_query(query: str) -> list[str]:
 
 @st.cache_data(show_spinner=False)
 def load_rows() -> pd.DataFrame:
-    rows = json.loads(DATA_PATH.read_text())
-    frame = pd.DataFrame(rows)
+    store.initialize_store()
+    frame = store.fetch_communities()
     frame["Narrative_Word_Count"] = pd.to_numeric(frame.get("Narrative_Word_Count", 0), errors="coerce").fillna(0).astype(int)
     frame["PRS_Triplet_Count"] = pd.to_numeric(frame.get("PRS_Triplet_Count", 0), errors="coerce").fillna(0).astype(int)
     frame["search_blob"] = frame.apply(
@@ -48,11 +47,52 @@ def load_rows() -> pd.DataFrame:
     return frame
 
 
+def optional_secret(name: str, default: str = "") -> str:
+    if name in st.secrets:
+        return str(st.secrets[name]).strip()
+    return default
+
+
+def supports_oidc() -> bool:
+    return hasattr(st, "login") and hasattr(st, "logout") and hasattr(st, "user")
+
+
+def normalize_email_list(value: str) -> set[str]:
+    return {item.strip().lower() for item in str(value or "").split(",") if item.strip()}
+
+
+def is_logged_in() -> bool:
+    if not supports_oidc():
+        return False
+    return bool(getattr(st.user, "is_logged_in", False))
+
+
+def current_user_email() -> str:
+    if not is_logged_in():
+        return ""
+    for key in ("email", "mail", "preferred_username"):
+        value = getattr(st.user, key, None)
+        if value:
+            return str(value).strip().lower()
+    if hasattr(st.user, "to_dict"):
+        values = st.user.to_dict()
+        for key in ("email", "mail", "preferred_username"):
+            if values.get(key):
+                return str(values[key]).strip().lower()
+    return ""
+
+
+def is_admin() -> bool:
+    admin_emails = normalize_email_list(optional_secret("ADMIN_EMAILS", store.DEFAULT_ADMIN_EMAIL))
+    return bool(current_user_email()) and current_user_email() in admin_emails
+
+
 def apply_filters(
     frame: pd.DataFrame,
     query: str,
     types: Iterable[str],
     subtypes: Iterable[str],
+    ssubtypes: Iterable[str],
     countries: Iterable[str],
     sources: Iterable[str],
 ) -> pd.DataFrame:
@@ -66,6 +106,8 @@ def apply_filters(
         filtered = filtered[filtered["Type"].isin(types)]
     if subtypes:
         filtered = filtered[filtered["Subtype"].isin(subtypes)]
+    if ssubtypes:
+        filtered = filtered[filtered["SSubtype"].isin(ssubtypes)]
     if countries:
         filtered = filtered[filtered["Country"].isin(countries)]
     if sources:
@@ -119,12 +161,13 @@ def compact_context(frame: pd.DataFrame, limit: int = 18) -> str:
 def render_metrics(frame: pd.DataFrame) -> None:
     type_count = frame["Type"].nunique() if not frame.empty else 0
     subtype_count = frame["Subtype"].nunique() if not frame.empty else 0
+    ssubtype_count = frame["SSubtype"].replace("", pd.NA).dropna().nunique() if not frame.empty else 0
     country_count = frame["Country"].nunique() if not frame.empty else 0
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Communities", f"{len(frame):,}")
     col2.metric("Types", f"{type_count:,}")
     col3.metric("Subtypes", f"{subtype_count:,}")
-    col4.metric("Countries", f"{country_count:,}")
+    col4.metric("Countries", f"{country_count:,}", delta=f"{ssubtype_count:,} ssubtypes")
 
 
 def render_charts(frame: pd.DataFrame) -> None:
@@ -156,7 +199,11 @@ def render_detail(frame: pd.DataFrame) -> None:
     row = frame.loc[frame["Community_ID"] == selected_id].iloc[0]
 
     st.markdown(f"### {row['Community_Name']}")
-    st.caption(f"{row['Type']} | {row['Subtype']} | {row['Country']}")
+    lineage = [row["Type"], row["Subtype"]]
+    if str(row.get("SSubtype", "")).strip():
+        lineage.append(row["SSubtype"])
+    lineage.append(row["Country"])
+    st.caption(" | ".join(lineage))
 
     with st.container(border=True):
         st.markdown("**Central organizing principle**")
@@ -265,6 +312,146 @@ def render_under_construction_panel() -> None:
     )
 
 
+def render_auth_panel() -> None:
+    st.subheader("Sign in")
+    if not supports_oidc():
+        st.caption("Google sign-in will appear here when Streamlit OIDC is configured for this deployment.")
+        return
+    if not is_logged_in():
+        provider = optional_secret("AUTH_PROVIDER_NAME")
+        if st.button("Sign in with Google"):
+            if provider:
+                st.login(provider)
+            else:
+                st.login()
+        st.caption("Admin functions remain hidden until an approved Google account is signed in.")
+        return
+    email = current_user_email() or "Signed-in user"
+    st.success(f"Signed in as {email}")
+    if st.button("Sign out"):
+        st.logout()
+
+
+def render_platform_snapshot(all_rows: pd.DataFrame) -> None:
+    summary = store.coverage_summary()
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Communities in database", f"{summary['total_communities']:,}")
+    col2.metric("Countries represented", f"{summary['country_count']:,}")
+    col3.metric("Religious communities", f"{summary['religious_count']:,}")
+    col4.metric("Subtype families", f"{summary['subtype_count']:,}", delta=f"{summary['ssubtype_count']:,} ssubtypes")
+
+    st.markdown("**Communities in the database thus far**")
+    left, right = st.columns(2)
+    with left:
+        type_counts = all_rows["Type"].value_counts().head(12)
+        if not type_counts.empty:
+            st.bar_chart(type_counts)
+    with right:
+        country_counts = all_rows["Country"].value_counts().head(12)
+        if not country_counts.empty:
+            st.bar_chart(country_counts)
+
+
+def render_suggest_tab(rows: pd.DataFrame) -> None:
+    st.subheader("Suggest other communities")
+    weekly_count = store.count_weekly_suggestions()
+    remaining = max(0, 50 - weekly_count)
+    st.caption(
+        f"This public intake form is capped at 50 community suggestions per week. "
+        f"{remaining} submission{'s' if remaining != 1 else ''} remain in the current week."
+    )
+
+    digest_email = store.get_setting("suggestion_digest_email", default=store.DEFAULT_ADMIN_EMAIL)
+    email_service = store.get_setting("suggestion_email_service", default="gmail")
+    st.info(
+        f"Suggestions enter a pending review queue and are summarized weekly to the administrator via {email_service}. "
+        f"Current destination: {digest_email}."
+    )
+
+    with st.form("community-suggestion-form", clear_on_submit=True):
+        submitter_name = st.text_input("Your name")
+        submitter_email = st.text_input("Your email")
+        organization_name = st.text_input("Community or organization name")
+        col1, col2 = st.columns(2)
+        with col1:
+            country = st.text_input("Country")
+            type_value = st.selectbox("Type", sorted(rows["Type"].dropna().unique().tolist() + ["Religious"]))
+        with col2:
+            subtype = st.text_input("Subtype")
+            ssubtype = st.text_input("SSubtype (optional)")
+        website = st.text_input("Website")
+        reason = st.text_area(
+            "Why should this be added?",
+            placeholder="Tell us what this community does, why it matters, and how it fits the C2A2 platform.",
+        )
+        submitted = st.form_submit_button("Submit suggestion")
+
+    if submitted:
+        missing = [
+            label
+            for label, value in (
+                ("name", submitter_name),
+                ("email", submitter_email),
+                ("organization", organization_name),
+                ("country", country),
+                ("type", type_value),
+                ("subtype", subtype),
+                ("website", website),
+                ("reason", reason),
+            )
+            if not str(value).strip()
+        ]
+        if missing:
+            st.error(f"Please complete the following fields: {', '.join(missing)}.")
+        else:
+            try:
+                result = store.create_suggestion(
+                    submitter_name=submitter_name,
+                    submitter_email=submitter_email,
+                    organization_name=organization_name,
+                    country=country,
+                    type=type_value,
+                    subtype=subtype,
+                    ssubtype=ssubtype,
+                    website=website,
+                    reason=reason,
+                )
+                st.success(
+                    f"Suggestion received. Queue ID {result['suggestion_id']} was added for weekly review. "
+                    f"Weekly usage: {result['weekly_count_after_submit']}/{result['weekly_cap']}."
+                )
+            except ValueError as error:
+                st.error(str(error))
+
+    st.markdown("**What we are prioritizing now**")
+    st.markdown(
+        """
+        - Small religious communities with substantial public presence
+        - Civic consultancies and practical community-support organizations
+        - Communities that are not primarily educational institutions
+        - High-quality additions that improve country coverage over time
+        """
+    )
+
+    if is_admin():
+        st.divider()
+        st.subheader("Admin review queue")
+        pending = store.list_pending_suggestions(limit=100)
+        st.caption(f"{len(pending):,} suggestions are currently pending review.")
+        if pending.empty:
+            st.info("No pending suggestions right now.")
+        else:
+            st.dataframe(pending, use_container_width=True, hide_index=True)
+
+        with st.expander("Admin notification settings"):
+            current_email = st.text_input("Weekly digest destination", value=digest_email)
+            current_service = st.selectbox("Notification service", ["gmail", "resend", "smtp"], index=["gmail", "resend", "smtp"].index(email_service) if email_service in ["gmail", "resend", "smtp"] else 0)
+            if st.button("Save admin notification settings"):
+                store.set_setting("suggestion_digest_email", current_email)
+                store.set_setting("suggestion_email_service", current_service)
+                st.success("Admin notification settings saved.")
+
+
 def main() -> None:
     st.set_page_config(
         page_title="C2A2 Community Explorer",
@@ -273,7 +460,7 @@ def main() -> None:
     )
 
     st.title("C2A2 Community Explorer")
-    st.caption("Public Streamlit prototype: dataset-first exploration with an optional LLM analysis layer.")
+    st.caption("Public Streamlit prototype for the emerging C2A2 platform.")
 
     rows = load_rows()
 
@@ -283,19 +470,23 @@ def main() -> None:
         types = st.multiselect("Type", sorted(rows["Type"].dropna().unique()))
         subtype_options = sorted(rows["Subtype"].dropna().unique())
         subtypes = st.multiselect("Subtype", subtype_options)
+        ssubtype_options = sorted([value for value in rows["SSubtype"].dropna().unique() if str(value).strip()])
+        ssubtypes = st.multiselect("SSubtype", ssubtype_options)
         countries = st.multiselect("Country", sorted(rows["Country"].dropna().unique()))
         sources = st.multiselect("Source directory", sorted(rows["Source_Directory"].dropna().unique()))
         st.divider()
         st.caption(
-            "This Streamlit version is the fast public demo path: read-only by default, "
-            "using the local dataset as the source of truth."
+            "This public version is read-only by default, uses the current C2A2 dataset as its source of truth, "
+            "and is being built so that future community-specific explorers can live within the same broader platform."
         )
+        render_auth_panel()
 
-    filtered = apply_filters(rows, search, types, subtypes, countries, sources)
+    filtered = apply_filters(rows, search, types, subtypes, ssubtypes, countries, sources)
 
-    explorer_tab, assistant_tab, notes_tab = st.tabs(["Explorer", "Assistant", "About C2A2"])
+    explorer_tab, assistant_tab, notes_tab, suggest_tab = st.tabs(["Explorer", "Assistant", "About C2A2", "Suggest Other Communities"])
 
     with explorer_tab:
+        render_platform_snapshot(rows)
         render_metrics(filtered)
         st.markdown(f"Showing **{len(filtered):,}** of **{len(rows):,}** total communities.")
         render_charts(filtered)
@@ -305,6 +496,7 @@ def main() -> None:
             "Community_Name",
             "Type",
             "Subtype",
+            "SSubtype",
             "Country",
             "Verified_Link_Host",
             "Source_Directory",
@@ -354,7 +546,7 @@ def main() -> None:
             This public prototype focuses on one slice of that larger vision:
 
             - a community explorer over a curated C2A2 dataset
-            - filters across type, subtype, geography, and source
+            - filters across type, subtype, ssubtype, geography, and source
             - detail views for each community's organizing principle
             - Problem-Resource-Solution framing for comparison across communities
 
@@ -368,6 +560,9 @@ def main() -> None:
             Contact [Thomas Loughran](https://linkedin.com/in/tloughran) on LinkedIn.
             """
         )
+
+    with suggest_tab:
+        render_suggest_tab(rows)
 
 
 if __name__ == "__main__":

@@ -28,17 +28,21 @@ Streamlit Community Cloud is happiest with a Python entrypoint, Python dependenc
 
 - `streamlit_app.py`
 - `community_data.json`
+- `platform_store.py`
 - `requirements.txt`
-- Streamlit secret: `OPENAI_API_KEY`
+- Streamlit secrets for auth/admin settings as needed
 
 Capabilities:
 
 - filter by type, subtype, country, and source
+- new `Type -> Subtype -> SSubtype` taxonomy support
 - exact-text search
 - current-slice table
 - basic charts
 - detail view
 - deliberate under-construction assistant placeholder for public demo clarity
+- public suggestion intake with weekly cap and pending-review queue scaffold
+- optional Google sign-in scaffold for admin review workflows
 
 ### Phase 2: Private admin workflow
 
@@ -60,12 +64,20 @@ Admin-only features later:
 
 `streamlit_app.py` now provides:
 
-- cached loading of `community_data.json`
+- cached loading of community data via `platform_store.py`
 - sidebar filters
 - metrics and simple charts
 - detail view with provenance
 - CSV export
 - an under-construction Assistant tab that avoids exposing a flaky public AI path
+- a public `Suggest Other Communities` tab
+- an admin-only pending review queue when Google OIDC is configured and the signed-in email is allowlisted
+
+## Important deployment note
+
+The current `platform_store.py` uses a local SQLite file as a **staging architecture**, not a final production store.
+
+That is good enough for rapid local development and platform shaping, but a public long-lived deployment should eventually move suggestions, review queues, users, and agent runs to a durable external database such as Postgres or Supabase.
 
 ## What to do next if you want parity later
 

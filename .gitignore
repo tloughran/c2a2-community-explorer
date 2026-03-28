@@ -4,3 +4,6 @@
 .DS_Store
 __pycache__/
 *.pyc
+.streamlit/secrets.toml
+c2a2_platform.db
+c2a2_platform.db-*

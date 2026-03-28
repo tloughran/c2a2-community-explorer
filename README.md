@@ -16,6 +16,7 @@ This project turns the rebuilt community directory into a static, interactive we
 - `server.js` - required local server for the assistant; serves the app and routes `/api/query` to the OpenAI-backed assistant
 - `dataset-store.js` - canonical dataset read/write store used by the server assistant for full record creation
 - `streamlit_app.py` - public-facing Streamlit prototype over the same dataset
+- `platform_store.py` - SQLite-backed staging store for community records, suggestion intake, settings, and future agent/admin workflows
 - `requirements.txt` - Python dependencies for Streamlit deployment
 - `package.json` - lightweight scripts for local server and smoke tests
 - `community_record_schema.json` - a JSON Schema starter for future ingestion and validation
@@ -24,6 +25,7 @@ This project turns the rebuilt community directory into a static, interactive we
 - `test_ai_query_smoke.js` - Node smoke test for the dataset-grounded AI retrieval path
 - `test_assistant_query_smoke.js` - Node smoke test for the shared dataset reasoning helpers that still back some server-side tool behavior
 - `test_dataset_store_smoke.js` - Node smoke test for canonical dataset writes and duplicate guards
+- `test_platform_store_smoke.py` - Python smoke test for the Streamlit-facing store and suggestion queue
 - `docs/ai-query-architecture.md` - design note for the staged AI discovery layer and future webpage grounding
 - `docs/streamlit-migration.md` - recommended path for a public Streamlit deployment
 
@@ -128,10 +130,12 @@ streamlit run streamlit_app.py
 
 The Streamlit version:
 
-- reads the same `community_data.json`
+- seeds itself from the same `community_data.json`
 - reproduces the core explorer flow in Python
 - is read-only by design for public deployment stability
 - currently presents the Assistant tab as an under-construction public placeholder
+- includes a public `Suggest Other Communities` intake tab with a weekly cap and admin review queue scaffold
+- includes optional Google sign-in scaffolding for future admin/user distinctions
 
 See [`docs/streamlit-migration.md`](docs/streamlit-migration.md) and [`.streamlit/secrets.toml.example`](/Users/tloughr1/Downloads/Community_Inventory_improvements_ChatGPT/c2a2-community-explorer/.streamlit/secrets.toml.example).
 

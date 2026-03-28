@@ -318,12 +318,8 @@ def render_auth_panel() -> None:
         st.caption("Google sign-in will appear here when Streamlit OIDC is configured for this deployment.")
         return
     if not is_logged_in():
-        provider = optional_secret("AUTH_PROVIDER_NAME")
         if st.button("Sign in with Google"):
-            if provider:
-                st.login(provider)
-            else:
-                st.login()
+            st.login()
         st.caption("Admin functions remain hidden until an approved Google account is signed in.")
         return
     email = current_user_email() or "Signed-in user"

@@ -133,6 +133,7 @@ The Streamlit version:
 - seeds itself from the same `community_data.json`
 - reproduces the core explorer flow in Python
 - is read-only by design for public deployment stability
+- now includes `Explorer`, `Map`, and `PRS Triplets` surfaces over the same current slice
 - currently presents the Assistant tab as an under-construction public placeholder
 - includes a public `Suggest Other Communities` intake tab with a weekly cap and admin review queue scaffold
 - includes optional Google sign-in scaffolding for future admin/user distinctions

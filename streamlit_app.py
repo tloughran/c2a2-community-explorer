@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import hashlib
 import re
 from typing import Iterable
 
 import pandas as pd
 import streamlit as st
+import pydeck as pdk
 
+from country_coordinates import ALIASES, COUNTRY_COORDINATES
 import platform_store as store
 
 
@@ -448,6 +451,163 @@ def render_suggest_tab(rows: pd.DataFrame) -> None:
                 st.success("Admin notification settings saved.")
 
 
+def point_offset(seed: str, scale: float = 0.9) -> tuple[float, float]:
+    digest = hashlib.md5(seed.encode("utf-8")).digest()
+    lat_raw = int.from_bytes(digest[:4], "big") / 0xFFFFFFFF
+    lon_raw = int.from_bytes(digest[4:8], "big") / 0xFFFFFFFF
+    lat_offset = (lat_raw - 0.5) * scale
+    lon_offset = (lon_raw - 0.5) * scale
+    return lat_offset, lon_offset
+
+
+def build_map_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    map_rows = []
+    for row in frame.to_dict(orient="records"):
+        country = ALIASES.get(row["Country"], row["Country"])
+        coords = COUNTRY_COORDINATES.get(country)
+        if not coords:
+            continue
+        base_lat, base_lon = coords
+        lat_offset, lon_offset = point_offset(row["Community_ID"], scale=1.1 if row["Country"] in {"Global", "Unspecified"} else 0.6)
+        lineage = " / ".join([value for value in [row["Type"], row["Subtype"], row.get("SSubtype", "")] if str(value).strip()])
+        map_rows.append(
+            {
+                "Community_ID": row["Community_ID"],
+                "Community_Name": row["Community_Name"],
+                "Type": row["Type"],
+                "Subtype": row["Subtype"],
+                "SSubtype": row.get("SSubtype", ""),
+                "Country": row["Country"],
+                "Verified_Link": row["Verified_Link"],
+                "Problem_Statement": row["Problem_Statement"],
+                "Resource_Statement": row["Resource_Statement"],
+                "Solution_Statement": row["Solution_Statement"],
+                "tooltip_lineage": lineage,
+                "lat": base_lat + lat_offset,
+                "lon": base_lon + lon_offset,
+            }
+        )
+    return pd.DataFrame(map_rows)
+
+
+def render_map_tab(frame: pd.DataFrame) -> None:
+    st.subheader("Global map")
+    st.caption(
+        "This first map view places each listed community near its country centroid. "
+        "Points separate as you zoom because each community gets a stable local offset."
+    )
+    map_frame = build_map_frame(frame)
+    if map_frame.empty:
+        st.info("No mappable communities are present in the current slice.")
+        return
+
+    view_state = pdk.ViewState(latitude=20, longitude=5, zoom=1.1, pitch=0)
+    layer = pdk.Layer(
+        "ScatterplotLayer",
+        data=map_frame,
+        get_position="[lon, lat]",
+        get_fill_color="[24, 126, 214, 190]",
+        get_line_color="[255, 255, 255, 180]",
+        line_width_min_pixels=1,
+        stroked=True,
+        pickable=True,
+        radius_min_pixels=5,
+        radius_max_pixels=12,
+        get_radius=90000,
+    )
+    deck = pdk.Deck(
+        map_style="https://basemaps.cartocdn.com/gl/positron-gl-style/style.json",
+        initial_view_state=view_state,
+        layers=[layer],
+        tooltip={
+            "html": (
+                "<b>{Community_Name}</b><br/>"
+                "{tooltip_lineage}<br/>"
+                "{Country}<br/>"
+                "<a href='{Verified_Link}' target='_blank'>Open website</a><br/>"
+                "<small>See this community's PRS below in the table.</small>"
+            ),
+            "style": {
+                "backgroundColor": "#111827",
+                "color": "#f8fafc",
+            },
+        },
+    )
+    st.pydeck_chart(deck, use_container_width=True)
+
+    st.markdown("**Mapped communities in the current slice**")
+    st.dataframe(
+        map_frame[["Community_ID", "Community_Name", "Type", "Subtype", "SSubtype", "Country", "Verified_Link"]],
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Verified_Link": st.column_config.LinkColumn("Website"),
+        },
+    )
+    st.info("A dedicated internal reader pane and tab-specific AI companion will be layered onto this map workflow in a later platform slice.")
+
+
+def render_prs_tab(frame: pd.DataFrame) -> None:
+    st.subheader("Problem-Resource-Solution triplets")
+    st.caption("Search and compare the PRS framing across the current community slice.")
+
+    prs_search = st.text_input("Search PRS content", key="prs_search", placeholder="mistrust, mentorship, open standards")
+    focus = st.radio("Focus", ["All", "Problems", "Resources", "Solutions"], horizontal=True)
+    searchable = frame.copy()
+    searchable["prs_blob"] = searchable.apply(
+        lambda row: " ".join(
+            normalize_text(row.get(column, ""))
+            for column in ["Problem_Statement", "Resource_Statement", "Solution_Statement", "Community_Name", "Subtype", "SSubtype"]
+        ),
+        axis=1,
+    )
+    if prs_search.strip():
+        tokens = tokenize_query(prs_search)
+        if tokens:
+            searchable = searchable[searchable["prs_blob"].apply(lambda blob: all(token in blob for token in tokens))]
+
+    st.markdown(f"Showing **{len(searchable):,}** PRS records in the current slice.")
+    display = searchable[[
+        "Community_ID",
+        "Community_Name",
+        "Type",
+        "Subtype",
+        "SSubtype",
+        "Problem_Statement",
+        "Resource_Statement",
+        "Solution_Statement",
+        "Verified_Link",
+    ]].copy()
+
+    if focus == "Problems":
+        display = display[["Community_ID", "Community_Name", "Type", "Subtype", "SSubtype", "Problem_Statement", "Verified_Link"]]
+    elif focus == "Resources":
+        display = display[["Community_ID", "Community_Name", "Type", "Subtype", "SSubtype", "Resource_Statement", "Verified_Link"]]
+    elif focus == "Solutions":
+        display = display[["Community_ID", "Community_Name", "Type", "Subtype", "SSubtype", "Solution_Statement", "Verified_Link"]]
+
+    st.dataframe(
+        display,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Verified_Link": st.column_config.LinkColumn("Website"),
+            "Problem_Statement": st.column_config.TextColumn("Problem", width="large"),
+            "Resource_Statement": st.column_config.TextColumn("Resource", width="large"),
+            "Solution_Statement": st.column_config.TextColumn("Solution", width="large"),
+        },
+    )
+
+    with st.expander("PRS comparison notes"):
+        st.markdown(
+            """
+            This tab is the beginning of the comparison workflow for communities across articulated
+            problems, resources, and solutions. A later platform slice will add a tab-aware AI guide
+            for clustering, contrast, and collaboration opportunities directly within the PRS surface.
+            """
+        )
+
+
 def main() -> None:
     st.set_page_config(
         page_title="C2A2 Community Explorer",
@@ -479,7 +639,9 @@ def main() -> None:
 
     filtered = apply_filters(rows, search, types, subtypes, ssubtypes, countries, sources)
 
-    explorer_tab, assistant_tab, notes_tab, suggest_tab = st.tabs(["Explorer", "Assistant", "About C2A2", "Suggest Other Communities"])
+    explorer_tab, map_tab, prs_tab, assistant_tab, notes_tab, suggest_tab = st.tabs(
+        ["Explorer", "Map", "PRS Triplets", "Assistant", "About C2A2", "Suggest Other Communities"]
+    )
 
     with explorer_tab:
         render_platform_snapshot(rows)
@@ -510,6 +672,12 @@ def main() -> None:
         st.subheader("Dataset assistant")
         render_under_construction_panel()
         st.info("For now, use the Explorer tab for the public demo.")
+
+    with map_tab:
+        render_map_tab(filtered)
+
+    with prs_tab:
+        render_prs_tab(filtered)
 
     with notes_tab:
         st.subheader("C2A2 Community Explorer prototype")
@@ -542,6 +710,8 @@ def main() -> None:
             This public prototype focuses on one slice of that larger vision:
 
             - a community explorer over a curated C2A2 dataset
+            - a first global map view using country-level placement with stable local offsets
+            - a PRS Triplets tab for comparing articulated problems, resources, and solutions
             - filters across type, subtype, ssubtype, geography, and source
             - detail views for each community's organizing principle
             - Problem-Resource-Solution framing for comparison across communities

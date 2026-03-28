@@ -38,6 +38,8 @@ Capabilities:
 - new `Type -> Subtype -> SSubtype` taxonomy support
 - exact-text search
 - current-slice table
+- country-level map view with stable per-community offsets
+- PRS triplet comparison tab
 - basic charts
 - detail view
 - deliberate under-construction assistant placeholder for public demo clarity
@@ -67,6 +69,7 @@ Admin-only features later:
 - cached loading of community data via `platform_store.py`
 - sidebar filters
 - metrics and simple charts
+- Explorer, Map, and PRS Triplets tabs over the same filtered slice
 - detail view with provenance
 - CSV export
 - an under-construction Assistant tab that avoids exposing a flaky public AI path
